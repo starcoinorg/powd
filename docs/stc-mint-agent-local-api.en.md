@@ -13,6 +13,10 @@ The implemented surface is intentionally narrow:
 
 This document describes the current local API only. It does not cover subsidy, growth, agent-side `stratumd`, or remote operations.
 
+For the best-practice organization, loop placement, install path, and OpenClaw adaptation boundary, see:
+
+- `docs/stc-mint-agent-openclaw-integration.en.md`
+
 ## 2. User Model
 
 The user only configures one thing:
@@ -78,11 +82,7 @@ It registers:
 
 Then it calls the exposed MCP tools.
 
-The scheduling loop also stays in OpenClaw:
-
-- read `status` and `events_since`
-- combine them with system CPU, memory, user activity, and power state
-- decide when to `set_mode`, `pause`, `resume`, `start`, and `stop`
+Its role here is only the MCP host and tool caller. The best-practice placement of the main scheduling loop is covered by the dedicated integration document rather than repeated here.
 
 ## 4. MCP Tool Surface
 
@@ -272,5 +272,4 @@ The current shape deliberately keeps these constraints:
 - the user flow is mainnet-only by default
 - `halley` is not exposed in the normal user path
 - OpenClaw does not set raw budget values
-- automatic scheduling stays out of the miner and out of the MCP bridge
 - `stc-mint-agent` is the only long-running process; there is no second adapter daemon

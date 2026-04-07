@@ -13,6 +13,10 @@
 
 这份文档只描述当前已经落地的本地接口，不讨论补贴、增长、agent 专用 `stratumd`，也不讨论远程操作。
 
+关于最佳实践组织、loop 放置、安装路径和 OpenClaw 适配边界，统一看：
+
+- `docs/stc-mint-agent-openclaw-integration.zh.md`
+
 ## 2. 用户模型
 
 用户只需要配置一件事：
@@ -78,11 +82,7 @@ OpenClaw 不直接连 miner，也不直接调 CLI 字符串。
 
 然后通过 MCP tools 调用本地接口。
 
-调度循环也放在 OpenClaw：
-
-- 读取 `status` 和 `events_since`
-- 结合系统 CPU、内存、用户活跃、电源状态
-- 决定何时 `set_mode`、`pause`、`resume`、`start`、`stop`
+OpenClaw 在这里的角色只是 MCP 宿主和工具调用方。主调度 loop 的最佳实践放置见专项集成文档，这份文档不重复展开。
 
 ## 4. MCP 工具面
 
@@ -272,5 +272,4 @@ OpenClaw 用 request-response 轮询，不用 `events.stream`。
 - 默认只面向 `main`
 - 用户流程里不暴露 `halley`
 - OpenClaw 不直接改原始 budget
-- 自动调度不进 miner，也不进 MCP server
 - 只有 `stc-mint-agent` 是长驻进程，不再引入第二个 adapter daemon
