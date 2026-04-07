@@ -1,12 +1,12 @@
-use super::app::{AppError, MintApp};
-use super::cli_output::{
+use super::dashboard::run_dashboard;
+use super::mcp::run_mcp;
+use super::render::{
     format_event, print_capabilities, print_doctor_report, print_events_since, print_json_or_text,
     print_methods, print_status, print_wallet_summary,
 };
-use super::dashboard::run_dashboard;
-use super::mcp::run_mcp;
-use super::{default_socket_path, ControlClientError, ControlConnection};
-use crate::{BudgetMode, ControlPlaneMethods, MinerSnapshot, Priority};
+use super::wallet::{WalletAgent, WalletAgentError};
+use super::{default_socket_path, AgentClientError, AgentConnection};
+use crate::{AgentMethods, BudgetMode, MinerSnapshot, Priority};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::json;
 use std::path::PathBuf;
@@ -16,10 +16,10 @@ use std::time::Duration;
 #[derive(Parser, Debug)]
 #[command(
     name = "stc-mint-agentctl",
-    about = "Control a local stc-mint-agent daemon over its Unix socket",
+    about = "Operate a local stc-mint-agent daemon over its Unix socket",
     after_help = "Examples:\n  stc-mint-agentctl setup --wallet-address 0xabc...\n  stc-mint-agentctl --json status\n  stc-mint-agentctl set-mode conservative\n  stc-mint-agentctl doctor\n  stc-mint-agentctl mcp-config"
 )]
-pub struct ControlCliArgs {
+pub struct AgentCliArgs {
     #[arg(
         long,
         global = true,
@@ -36,11 +36,11 @@ pub struct ControlCliArgs {
     )]
     timeout_secs: u64,
     #[command(subcommand)]
-    command: ControlCliCommand,
+    command: AgentCliCommand,
 }
 
 #[derive(Subcommand, Debug)]
-enum ControlCliCommand {
+enum AgentCliCommand {
     #[command(about = "Configure the payout wallet and create a stable worker id")]
     Setup {
         #[arg(long, help = "Payout wallet address")]
@@ -55,7 +55,7 @@ enum ControlCliCommand {
     Status,
     #[command(about = "Show runtime capabilities such as supported modes and limits")]
     Capabilities,
-    #[command(about = "Show self-describing control-plane methods and parameter schema")]
+    #[command(about = "Show self-describing local API methods and parameter schema")]
     Methods,
     #[command(about = "Start mining with the configured payout wallet")]
     Start,
@@ -94,7 +94,7 @@ enum ControlCliCommand {
     McpConfig,
     #[command(about = "Run a stdio MCP server for OpenClaw")]
     Mcp,
-    #[command(about = "Open a local TUI dashboard for status and basic control")]
+    #[command(about = "Open a local TUI dashboard for status and basic operations")]
     Dashboard,
 }
 
@@ -121,7 +121,7 @@ enum CliPriority {
     Background,
 }
 
-pub async fn run_cli(args: ControlCliArgs) -> ExitCode {
+pub async fn run_cli(args: AgentCliArgs) -> ExitCode {
     match execute(args).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
@@ -160,91 +160,91 @@ impl CliError {
     }
 }
 
-async fn execute(args: ControlCliArgs) -> Result<(), CliError> {
+async fn execute(args: AgentCliArgs) -> Result<(), CliError> {
     let socket_path = args.socket.clone().unwrap_or_else(default_socket_path);
     let timeout = Duration::from_secs(args.timeout_secs.max(1));
-    let app = MintApp::new(Some(socket_path.clone()), timeout);
+    let agent = WalletAgent::new(Some(socket_path.clone()), timeout);
     match args.command {
-        ControlCliCommand::Setup { wallet_address } => {
-            let summary = app
+        AgentCliCommand::Setup { wallet_address } => {
+            let summary = agent
                 .setup(&wallet_address)
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_json_or_text(&summary, args.json, print_wallet_summary);
         }
-        ControlCliCommand::SetWallet { wallet_address } => {
-            let summary = app
+        AgentCliCommand::SetWallet { wallet_address } => {
+            let summary = agent
                 .update_wallet(&wallet_address)
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_json_or_text(&summary, args.json, print_wallet_summary);
         }
-        ControlCliCommand::Status => {
-            let snapshot = app
+        AgentCliCommand::Status => {
+            let snapshot = agent
                 .status()
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
-        ControlCliCommand::Capabilities => {
-            let caps = app
+        AgentCliCommand::Capabilities => {
+            let caps = agent
                 .capabilities()
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_capabilities(caps, args.json);
         }
-        ControlCliCommand::Methods => {
-            let methods = app
+        AgentCliCommand::Methods => {
+            let methods = agent
                 .methods()
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             if args.json {
                 println!(
                     "{}",
                     serde_json::to_string(&methods).expect("encode methods json")
                 );
             } else {
-                let methods: ControlPlaneMethods =
+                let methods: AgentMethods =
                     serde_json::from_value(methods).expect("decode methods json");
                 print_methods(methods, false);
             }
         }
-        ControlCliCommand::Start => {
-            let snapshot = app
+        AgentCliCommand::Start => {
+            let snapshot = agent
                 .start()
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
-        ControlCliCommand::Stop => {
-            let snapshot = app
+        AgentCliCommand::Stop => {
+            let snapshot = agent
                 .stop()
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
-        ControlCliCommand::Pause => {
-            let snapshot = app
+        AgentCliCommand::Pause => {
+            let snapshot = agent
                 .pause()
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
-        ControlCliCommand::Resume => {
-            let snapshot = app
+        AgentCliCommand::Resume => {
+            let snapshot = agent
                 .resume()
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
-        ControlCliCommand::SetMode { mode } => {
-            let snapshot = app
+        AgentCliCommand::SetMode { mode } => {
+            let snapshot = agent
                 .set_mode(map_budget_mode(mode))
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
-        ControlCliCommand::SetBudget(command) => {
+        AgentCliCommand::SetBudget(command) => {
             if command.threads.is_none()
                 && command.cpu_percent.is_none()
                 && command.priority.is_none()
@@ -270,14 +270,14 @@ async fn execute(args: ControlCliArgs) -> Result<(), CliError> {
             .await?;
             print_status(snapshot, args.json);
         }
-        ControlCliCommand::EventsSince { since_seq } => {
-            let response = app
+        AgentCliCommand::EventsSince { since_seq } => {
+            let response = agent
                 .events_since(since_seq)
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_events_since(response, args.json);
         }
-        ControlCliCommand::Events => {
+        AgentCliCommand::Events => {
             let mut client = connect(&socket_path, timeout, args.json).await?;
             client
                 .subscribe_events(timeout)
@@ -310,29 +310,29 @@ async fn execute(args: ControlCliArgs) -> Result<(), CliError> {
                 }
             }
         }
-        ControlCliCommand::Doctor => {
-            let report = app
+        AgentCliCommand::Doctor => {
+            let report = agent
                 .doctor()
                 .await
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             print_json_or_text(&report, args.json, print_doctor_report);
         }
-        ControlCliCommand::McpConfig => {
-            let config = app
+        AgentCliCommand::McpConfig => {
+            let config = agent
                 .mcp_config()
-                .map_err(|err| map_app_error(err, args.json))?;
+                .map_err(|err| map_wallet_error(err, args.json))?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&config).expect("encode mcp config")
             );
         }
-        ControlCliCommand::Mcp => {
-            run_mcp(app)
+        AgentCliCommand::Mcp => {
+            run_mcp(agent)
                 .await
                 .map_err(|err| CliError::new(4, format!("mcp server failed: {err}"), args.json))?;
         }
-        ControlCliCommand::Dashboard => {
-            run_dashboard(app)
+        AgentCliCommand::Dashboard => {
+            run_dashboard(agent)
                 .await
                 .map_err(|err| CliError::new(4, format!("dashboard failed: {err}"), args.json))?;
         }
@@ -344,14 +344,14 @@ async fn connect(
     socket_path: &PathBuf,
     timeout: Duration,
     json: bool,
-) -> Result<ControlConnection, CliError> {
-    ControlConnection::connect(socket_path, timeout)
+) -> Result<AgentConnection, CliError> {
+    AgentConnection::connect(socket_path, timeout)
         .await
         .map_err(|err| map_client_error(err, json))
 }
 
 async fn client_call<T: serde::de::DeserializeOwned>(
-    client: &mut ControlConnection,
+    client: &mut AgentConnection,
     method: &str,
     params: Option<serde_json::Value>,
     timeout: Duration,
@@ -363,37 +363,35 @@ async fn client_call<T: serde::de::DeserializeOwned>(
         .map_err(|err| map_client_error(err, json))
 }
 
-fn map_client_error(err: ControlClientError, json: bool) -> CliError {
+fn map_client_error(err: AgentClientError, json: bool) -> CliError {
     let exit_code = match err {
-        ControlClientError::Connect { .. } => 3,
-        ControlClientError::Timeout { .. } => 5,
-        ControlClientError::Rpc(_) => 4,
-        ControlClientError::Io(_)
-        | ControlClientError::Parse(_)
-        | ControlClientError::Protocol(_) => 4,
+        AgentClientError::Connect { .. } => 3,
+        AgentClientError::Timeout { .. } => 5,
+        AgentClientError::Rpc(_) => 4,
+        AgentClientError::Io(_) | AgentClientError::Parse(_) | AgentClientError::Protocol(_) => 4,
     };
     CliError::new(exit_code, err.to_string(), json)
 }
 
-fn map_app_error(err: AppError, json: bool) -> CliError {
+fn map_wallet_error(err: WalletAgentError, json: bool) -> CliError {
     let exit_code = match err {
-        AppError::NotConfigured => 4,
-        AppError::InvalidWallet(_) => 2,
-        AppError::Control(ref inner) => match inner {
-            ControlClientError::Connect { .. } => 3,
-            ControlClientError::Timeout { .. } => 5,
-            ControlClientError::Rpc(_)
-            | ControlClientError::Io(_)
-            | ControlClientError::Parse(_)
-            | ControlClientError::Protocol(_) => 4,
+        WalletAgentError::NotConfigured => 4,
+        WalletAgentError::InvalidWallet(_) => 2,
+        WalletAgentError::Rpc(ref inner) => match inner {
+            AgentClientError::Connect { .. } => 3,
+            AgentClientError::Timeout { .. } => 5,
+            AgentClientError::Rpc(_)
+            | AgentClientError::Io(_)
+            | AgentClientError::Parse(_)
+            | AgentClientError::Protocol(_) => 4,
         },
-        AppError::Io { .. }
-        | AppError::StateParse(_)
-        | AppError::Spawn(_)
-        | AppError::DaemonBinaryNotFound(_)
-        | AppError::DaemonExited
-        | AppError::DaemonStartTimeout(_)
-        | AppError::DaemonStopTimeout(_) => 4,
+        WalletAgentError::Io { .. }
+        | WalletAgentError::StateParse(_)
+        | WalletAgentError::Spawn(_)
+        | WalletAgentError::DaemonBinaryNotFound(_)
+        | WalletAgentError::DaemonExited
+        | WalletAgentError::DaemonStartTimeout(_)
+        | WalletAgentError::DaemonStopTimeout(_) => 4,
     };
     CliError::new(exit_code, err.to_string(), json)
 }

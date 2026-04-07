@@ -3,14 +3,14 @@ mod support;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
-use support::control_plane::{AgentProcess, RpcClient};
+use support::agent_rpc::{AgentProcess, RpcClient};
 use support::fake_pool::SilentKeepalivePool;
 use support::process::{pick_free_port, TEST_MUTEX};
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_plane_reports_capabilities_and_updates_budget() -> Result<()> {
+async fn agent_rpc_reports_capabilities_and_updates_budget() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = format!("127.0.0.1:{}", pick_free_port()?);
@@ -29,7 +29,7 @@ async fn control_plane_reports_capabilities_and_updates_budget() -> Result<()> {
     assert_eq!(caps["supported_priorities"], json!(["background"]));
 
     let methods = rpc.call_value("status.methods", None, RPC_TIMEOUT).await?;
-    assert_eq!(methods["control_plane_version"], 1);
+    assert_eq!(methods["agent_api_version"], 1);
     assert_eq!(methods["agent_version"], json!("0.1.0"));
     assert_eq!(
         methods["methods"]["events.since"]["params"]["fields"]["since_seq"]["type"],
@@ -73,7 +73,7 @@ async fn control_plane_reports_capabilities_and_updates_budget() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_plane_lifecycle_and_events_work() -> Result<()> {
+async fn agent_rpc_lifecycle_and_events_work() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = SilentKeepalivePool::start().await?;
@@ -135,7 +135,7 @@ async fn control_plane_lifecycle_and_events_work() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_plane_events_since_returns_buffered_events() -> Result<()> {
+async fn agent_rpc_events_since_returns_buffered_events() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = SilentKeepalivePool::start().await?;
@@ -174,7 +174,7 @@ async fn control_plane_events_since_returns_buffered_events() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_plane_rejects_invalid_requests() -> Result<()> {
+async fn agent_rpc_rejects_invalid_requests() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = format!("127.0.0.1:{}", pick_free_port()?);
@@ -242,7 +242,7 @@ async fn control_plane_rejects_invalid_requests() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_plane_events_stream_allows_follow_up_requests_on_same_connection() -> Result<()> {
+async fn agent_rpc_events_stream_allows_follow_up_requests_on_same_connection() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = format!("127.0.0.1:{}", pick_free_port()?);

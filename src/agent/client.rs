@@ -1,6 +1,5 @@
 use crate::{
-    ControlErrorKind, ControlPlaneMethods, EventsSinceResponse, MinerCapabilities, MinerEvent,
-    MinerSnapshot,
+    AgentErrorKind, AgentMethods, EventsSinceResponse, MinerCapabilities, MinerEvent, MinerSnapshot,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -22,11 +21,11 @@ pub struct RpcFailure {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RpcFailureData {
     #[serde(default)]
-    pub kind: Option<ControlErrorKind>,
+    pub kind: Option<AgentErrorKind>,
 }
 
 #[derive(Debug)]
-pub enum ControlClientError {
+pub enum AgentClientError {
     Connect {
         path: PathBuf,
         source: std::io::Error,
@@ -41,7 +40,7 @@ pub enum ControlClientError {
     Protocol(String),
 }
 
-impl Display for ControlClientError {
+impl Display for AgentClientError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Connect { path, source } => {
@@ -58,9 +57,9 @@ impl Display for ControlClientError {
     }
 }
 
-impl std::error::Error for ControlClientError {}
+impl std::error::Error for AgentClientError {}
 
-pub struct ControlConnection {
+pub struct AgentConnection {
     reader: tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
     writer: OwnedWriteHalf,
     next_id: u64,
@@ -80,18 +79,18 @@ struct RpcEnvelope {
     params: Option<Value>,
 }
 
-impl ControlConnection {
-    pub async fn connect(path: &Path, timeout: Duration) -> Result<Self, ControlClientError> {
+impl AgentConnection {
+    pub async fn connect(path: &Path, timeout: Duration) -> Result<Self, AgentClientError> {
         let stream = match tokio::time::timeout(timeout, UnixStream::connect(path)).await {
             Ok(Ok(stream)) => stream,
             Ok(Err(source)) => {
-                return Err(ControlClientError::Connect {
+                return Err(AgentClientError::Connect {
                     path: path.to_path_buf(),
                     source,
                 })
             }
             Err(_) => {
-                return Err(ControlClientError::Timeout {
+                return Err(AgentClientError::Timeout {
                     operation: "connect",
                     timeout,
                 })
@@ -110,9 +109,9 @@ impl ControlConnection {
         method: &str,
         params: Option<Value>,
         timeout: Duration,
-    ) -> Result<T, ControlClientError> {
+    ) -> Result<T, AgentClientError> {
         let value = self.call_value(method, params, timeout).await?;
-        serde_json::from_value(value).map_err(ControlClientError::Parse)
+        serde_json::from_value(value).map_err(AgentClientError::Parse)
     }
 
     pub async fn call_value(
@@ -120,14 +119,14 @@ impl ControlConnection {
         method: &str,
         params: Option<Value>,
         timeout: Duration,
-    ) -> Result<Value, ControlClientError> {
+    ) -> Result<Value, AgentClientError> {
         let id = self.next_request_id();
         self.send_request(method, params, id).await?;
         let deadline = Instant::now() + timeout;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
-                return Err(ControlClientError::Timeout {
+                return Err(AgentClientError::Timeout {
                     operation: "read rpc response",
                     timeout,
                 });
@@ -144,28 +143,22 @@ impl ControlConnection {
         }
     }
 
-    pub async fn subscribe_events(
-        &mut self,
-        timeout: Duration,
-    ) -> Result<Value, ControlClientError> {
+    pub async fn subscribe_events(&mut self, timeout: Duration) -> Result<Value, AgentClientError> {
         self.call_value("events.stream", None, timeout).await
     }
 
-    pub async fn methods(
-        &mut self,
-        timeout: Duration,
-    ) -> Result<ControlPlaneMethods, ControlClientError> {
+    pub async fn methods(&mut self, timeout: Duration) -> Result<AgentMethods, AgentClientError> {
         self.call("status.methods", None, timeout).await
     }
 
     pub async fn capabilities(
         &mut self,
         timeout: Duration,
-    ) -> Result<MinerCapabilities, ControlClientError> {
+    ) -> Result<MinerCapabilities, AgentClientError> {
         self.call("status.capabilities", None, timeout).await
     }
 
-    pub async fn status(&mut self, timeout: Duration) -> Result<MinerSnapshot, ControlClientError> {
+    pub async fn status(&mut self, timeout: Duration) -> Result<MinerSnapshot, AgentClientError> {
         self.call("status.get", None, timeout).await
     }
 
@@ -173,7 +166,7 @@ impl ControlConnection {
         &mut self,
         since_seq: u64,
         timeout: Duration,
-    ) -> Result<EventsSinceResponse, ControlClientError> {
+    ) -> Result<EventsSinceResponse, AgentClientError> {
         self.call(
             "events.since",
             Some(serde_json::json!({ "since_seq": since_seq })),
@@ -186,7 +179,7 @@ impl ControlConnection {
         &mut self,
         request: Value,
         timeout: Duration,
-    ) -> Result<Value, ControlClientError> {
+    ) -> Result<Value, AgentClientError> {
         self.raw_send(&request).await?;
         self.read_message(Some(timeout)).await
     }
@@ -196,7 +189,7 @@ impl ControlConnection {
         method: &str,
         params: Option<Value>,
         id: u64,
-    ) -> Result<(), ControlClientError> {
+    ) -> Result<(), AgentClientError> {
         let mut request = serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -211,42 +204,42 @@ impl ControlConnection {
     pub async fn read_message(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<Value, ControlClientError> {
+    ) -> Result<Value, AgentClientError> {
         let future = self.reader.next_line();
         let line = match timeout {
             Some(timeout) => with_timeout("read rpc response", timeout, future).await,
-            None => future.await.map_err(ControlClientError::Io),
+            None => future.await.map_err(AgentClientError::Io),
         }?
-        .ok_or_else(|| ControlClientError::Protocol("socket closed".to_string()))?;
-        serde_json::from_str(&line).map_err(ControlClientError::Parse)
+        .ok_or_else(|| AgentClientError::Protocol("socket closed".to_string()))?;
+        serde_json::from_str(&line).map_err(AgentClientError::Parse)
     }
 
     pub async fn read_event(
         &mut self,
         timeout: Option<Duration>,
-    ) -> Result<MinerEvent, ControlClientError> {
+    ) -> Result<MinerEvent, AgentClientError> {
         let message = self.read_message(timeout).await?;
         let envelope: RpcEnvelope =
-            serde_json::from_value(message).map_err(ControlClientError::Parse)?;
+            serde_json::from_value(message).map_err(AgentClientError::Parse)?;
         if envelope.method.as_deref() != Some("event") {
-            return Err(ControlClientError::Protocol(
+            return Err(AgentClientError::Protocol(
                 "expected event notification".to_string(),
             ));
         }
         let params = envelope.params.ok_or_else(|| {
-            ControlClientError::Protocol("event notification missing params".to_string())
+            AgentClientError::Protocol("event notification missing params".to_string())
         })?;
-        serde_json::from_value(params).map_err(ControlClientError::Parse)
+        serde_json::from_value(params).map_err(AgentClientError::Parse)
     }
 
-    async fn raw_send(&mut self, request: &Value) -> Result<(), ControlClientError> {
-        let mut encoded = serde_json::to_vec(request).map_err(ControlClientError::Parse)?;
+    async fn raw_send(&mut self, request: &Value) -> Result<(), AgentClientError> {
+        let mut encoded = serde_json::to_vec(request).map_err(AgentClientError::Parse)?;
         encoded.push(b'\n');
         self.writer
             .write_all(&encoded)
             .await
-            .map_err(ControlClientError::Io)?;
-        self.writer.flush().await.map_err(ControlClientError::Io)
+            .map_err(AgentClientError::Io)?;
+        self.writer.flush().await.map_err(AgentClientError::Io)
     }
 
     fn next_request_id(&mut self) -> u64 {
@@ -256,37 +249,36 @@ impl ControlConnection {
     }
 }
 
-fn parse_result(message: Value, expected_id: u64) -> Result<Value, ControlClientError> {
-    let envelope: RpcEnvelope =
-        serde_json::from_value(message).map_err(ControlClientError::Parse)?;
+fn parse_result(message: Value, expected_id: u64) -> Result<Value, AgentClientError> {
+    let envelope: RpcEnvelope = serde_json::from_value(message).map_err(AgentClientError::Parse)?;
     let response_id = envelope
         .id
         .as_ref()
         .and_then(Value::as_u64)
-        .ok_or_else(|| ControlClientError::Protocol("rpc response missing id".to_string()))?;
+        .ok_or_else(|| AgentClientError::Protocol("rpc response missing id".to_string()))?;
     if response_id != expected_id {
-        return Err(ControlClientError::Protocol(format!(
+        return Err(AgentClientError::Protocol(format!(
             "rpc response id mismatch: expected {expected_id}, got {response_id}"
         )));
     }
     if let Some(error) = envelope.error {
-        return Err(ControlClientError::Rpc(error));
+        return Err(AgentClientError::Rpc(error));
     }
     envelope
         .result
-        .ok_or_else(|| ControlClientError::Protocol("rpc response missing result".to_string()))
+        .ok_or_else(|| AgentClientError::Protocol("rpc response missing result".to_string()))
 }
 
 async fn with_timeout<F, T>(
     operation: &'static str,
     timeout: Duration,
     future: F,
-) -> Result<T, ControlClientError>
+) -> Result<T, AgentClientError>
 where
     F: std::future::Future<Output = Result<T, std::io::Error>>,
 {
     tokio::time::timeout(timeout, future)
         .await
-        .map_err(|_| ControlClientError::Timeout { operation, timeout })?
-        .map_err(ControlClientError::Io)
+        .map_err(|_| AgentClientError::Timeout { operation, timeout })?
+        .map_err(AgentClientError::Io)
 }

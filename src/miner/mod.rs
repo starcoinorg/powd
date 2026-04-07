@@ -6,12 +6,12 @@ mod solver;
 mod state;
 
 pub use api::{
-    default_budget_for_mode, Budget, BudgetError, BudgetMode, ConfigError, ControlError,
-    ControlErrorKind, EventsSinceResponse, MinerCapabilities, MinerConfig, MinerEvent,
+    default_budget_for_mode, AgentError, AgentErrorKind, Budget, BudgetError, BudgetMode,
+    ConfigError, EventsSinceResponse, MinerCapabilities, MinerConfig, MinerEvent,
     MinerEventEnvelope, MinerSnapshot, MinerState, Priority, RunnerError,
 };
 pub use runtime::{MinerHandle, MinerRunner};
 pub use schema::{
-    ControlPlaneMethods, MethodErrorSchema, MethodFieldSchema, MethodParamsSchema, MethodSpec,
-    CONTROL_PLANE_VERSION,
+    AgentMethods, MethodErrorSchema, MethodFieldSchema, MethodParamsSchema, MethodSpec,
+    AGENT_API_VERSION,
 };

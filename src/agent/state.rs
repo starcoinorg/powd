@@ -1,7 +1,7 @@
 use crate::{
-    default_budget_for_mode, Budget, BudgetMode, ControlError, ControlPlaneMethods,
-    EventsSinceResponse, MinerCapabilities, MinerConfig, MinerEvent, MinerEventEnvelope,
-    MinerHandle, MinerRunner, MinerSnapshot, MinerState, Priority,
+    default_budget_for_mode, AgentError, AgentMethods, Budget, BudgetMode, EventsSinceResponse,
+    MinerCapabilities, MinerConfig, MinerEvent, MinerEventEnvelope, MinerHandle, MinerRunner,
+    MinerSnapshot, MinerState, Priority,
 };
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -59,7 +59,7 @@ impl SharedState {
         self.inner.lock().await.capabilities()
     }
 
-    pub async fn methods(&self) -> ControlPlaneMethods {
+    pub async fn methods(&self) -> AgentMethods {
         self.inner.lock().await.methods()
     }
 
@@ -67,7 +67,7 @@ impl SharedState {
         self.event_log.lock().await.since(since_seq)
     }
 
-    pub async fn start(&self) -> std::result::Result<MinerSnapshot, ControlError> {
+    pub async fn start(&self) -> std::result::Result<MinerSnapshot, AgentError> {
         let _op = self.ops.lock().await;
         let mut guard = self.inner.lock().await;
         if let Some(handle) = guard.handle.as_ref() {
@@ -76,10 +76,7 @@ impl SharedState {
                 return Ok(snapshot);
             }
         }
-        let handle = guard
-            .runner
-            .spawn(guard.budget)
-            .map_err(ControlError::from)?;
+        let handle = guard.runner.spawn(guard.budget).map_err(AgentError::from)?;
         let snapshot = handle.snapshot();
         let events = handle.subscribe_events();
         guard.handle = Some(handle);
@@ -88,7 +85,7 @@ impl SharedState {
         Ok(snapshot)
     }
 
-    pub async fn stop(&self) -> std::result::Result<MinerSnapshot, ControlError> {
+    pub async fn stop(&self) -> std::result::Result<MinerSnapshot, AgentError> {
         let _op = self.ops.lock().await;
         let handle = self.inner.lock().await.handle.take();
         if let Some(handle) = handle {
@@ -97,12 +94,12 @@ impl SharedState {
         Ok(self.snapshot().await)
     }
 
-    pub async fn pause(&self) -> std::result::Result<MinerSnapshot, ControlError> {
+    pub async fn pause(&self) -> std::result::Result<MinerSnapshot, AgentError> {
         let _op = self.ops.lock().await;
         self.pause_locked().await
     }
 
-    pub async fn resume(&self) -> std::result::Result<MinerSnapshot, ControlError> {
+    pub async fn resume(&self) -> std::result::Result<MinerSnapshot, AgentError> {
         let _op = self.ops.lock().await;
         let handle = self.inner.lock().await.handle.clone();
         match handle {
@@ -114,7 +111,7 @@ impl SharedState {
     pub async fn set_mode(
         &self,
         mode: BudgetMode,
-    ) -> std::result::Result<MinerSnapshot, ControlError> {
+    ) -> std::result::Result<MinerSnapshot, AgentError> {
         let _op = self.ops.lock().await;
         let capabilities = self.capabilities().await;
         let budget = default_budget_for_mode(mode, capabilities.max_threads, logical_cpus());
@@ -124,7 +121,7 @@ impl SharedState {
     pub async fn set_budget(
         &self,
         update: BudgetUpdate,
-    ) -> std::result::Result<MinerSnapshot, ControlError> {
+    ) -> std::result::Result<MinerSnapshot, AgentError> {
         let _op = self.ops.lock().await;
         let budget = {
             let guard = self.inner.lock().await;
@@ -139,7 +136,7 @@ impl SharedState {
                 priority: update.priority.unwrap_or(current.priority),
             }
             .validate(guard.capabilities().max_threads)
-            .map_err(ControlError::InvalidBudget)?
+            .map_err(AgentError::InvalidBudget)?
         };
         self.apply_budget_locked(budget).await
     }
@@ -156,7 +153,7 @@ impl SharedState {
         }
     }
 
-    async fn pause_locked(&self) -> std::result::Result<MinerSnapshot, ControlError> {
+    async fn pause_locked(&self) -> std::result::Result<MinerSnapshot, AgentError> {
         let handle = self.inner.lock().await.handle.clone();
         match handle {
             Some(handle) if !is_terminal(handle.snapshot().state) => handle.pause().await,
@@ -167,7 +164,7 @@ impl SharedState {
     async fn apply_budget_locked(
         &self,
         budget: Budget,
-    ) -> std::result::Result<MinerSnapshot, ControlError> {
+    ) -> std::result::Result<MinerSnapshot, AgentError> {
         let handle = {
             let mut guard = self.inner.lock().await;
             guard.budget = budget;
@@ -229,7 +226,7 @@ impl DaemonState {
         self.runner.capabilities()
     }
 
-    fn methods(&self) -> ControlPlaneMethods {
+    fn methods(&self) -> AgentMethods {
         self.config.methods()
     }
 }

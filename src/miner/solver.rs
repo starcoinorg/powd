@@ -15,7 +15,7 @@ const THROTTLE_SLICE: Duration = Duration::from_millis(20);
 const THROTTLE_WAIT_SLICE: Duration = Duration::from_millis(10);
 
 #[derive(Clone)]
-struct SolverControl {
+struct SolverShared {
     job: Arc<Mutex<Option<MiningJob>>>,
     generation: Arc<AtomicU64>,
     shutdown: Arc<AtomicBool>,
@@ -28,7 +28,7 @@ struct SolverControl {
 }
 
 pub(super) struct SolverPool {
-    control: SolverControl,
+    shared: SolverShared,
     handles: Vec<thread::JoinHandle<()>>,
 }
 
@@ -64,7 +64,7 @@ impl SolverPool {
         share_tx: mpsc::Sender<SolvedShare>,
     ) -> Self {
         let thread_count = max_threads.max(1);
-        let control = SolverControl {
+        let shared = SolverShared {
             job: Arc::new(Mutex::new(None)),
             generation: Arc::new(AtomicU64::new(0)),
             shutdown: Arc::new(AtomicBool::new(false)),
@@ -79,41 +79,41 @@ impl SolverPool {
         for idx in 0..u32::from(thread_count) {
             let hashes = Arc::clone(&hashes);
             let share_tx = share_tx.clone();
-            let control = control.clone();
+            let shared = shared.clone();
             let handle = thread::Builder::new()
                 .name(format!("cpu-miner-{}", idx))
-                .spawn(move || run_worker(control, hashes, share_tx, idx, thread_count))
+                .spawn(move || run_worker(shared, hashes, share_tx, idx, thread_count))
                 .expect("spawn cpu miner worker");
             handles.push(handle);
         }
-        Self { control, handles }
+        Self { shared, handles }
     }
 
     pub(super) fn set_job(&self, job: MiningJob) {
-        let mut job_state = self.control.job.lock().expect("lock solver job");
+        let mut job_state = self.shared.job.lock().expect("lock solver job");
         *job_state = Some(job);
-        self.control.generation.fetch_add(1, Ordering::SeqCst);
-        self.control.wake.notify_all();
-        self.control.sleep_wake.notify_all();
+        self.shared.generation.fetch_add(1, Ordering::SeqCst);
+        self.shared.wake.notify_all();
+        self.shared.sleep_wake.notify_all();
     }
 
     pub(super) fn clear_job(&self) {
-        let mut job_state = self.control.job.lock().expect("lock solver job");
+        let mut job_state = self.shared.job.lock().expect("lock solver job");
         *job_state = None;
-        self.control.generation.fetch_add(1, Ordering::SeqCst);
-        self.control.wake.notify_all();
-        self.control.sleep_wake.notify_all();
+        self.shared.generation.fetch_add(1, Ordering::SeqCst);
+        self.shared.wake.notify_all();
+        self.shared.sleep_wake.notify_all();
     }
 
     pub(super) fn apply_budget(&self, budget: Budget) {
-        self.control
+        self.shared
             .active_threads
             .store(budget.threads, Ordering::Release);
-        self.control
+        self.shared
             .cpu_percent
             .store(budget.cpu_percent, Ordering::Release);
-        self.control.wake.notify_all();
-        self.control.sleep_wake.notify_all();
+        self.shared.wake.notify_all();
+        self.shared.sleep_wake.notify_all();
     }
 
     pub(super) fn set_priority(&self, priority: Priority) {
@@ -123,24 +123,24 @@ impl SolverPool {
     }
 
     pub(super) fn pause(&self) {
-        self.control.paused.store(true, Ordering::Release);
-        self.control.wake.notify_all();
-        self.control.sleep_wake.notify_all();
+        self.shared.paused.store(true, Ordering::Release);
+        self.shared.wake.notify_all();
+        self.shared.sleep_wake.notify_all();
     }
 
     pub(super) fn resume(&self) {
-        self.control.paused.store(false, Ordering::Release);
-        self.control.wake.notify_all();
-        self.control.sleep_wake.notify_all();
+        self.shared.paused.store(false, Ordering::Release);
+        self.shared.wake.notify_all();
+        self.shared.sleep_wake.notify_all();
     }
 
     fn shutdown(self) {
-        self.control.shutdown.store(true, Ordering::SeqCst);
-        if let Ok(mut job_state) = self.control.job.lock() {
+        self.shared.shutdown.store(true, Ordering::SeqCst);
+        if let Ok(mut job_state) = self.shared.job.lock() {
             *job_state = None;
         }
-        self.control.wake.notify_all();
-        self.control.sleep_wake.notify_all();
+        self.shared.wake.notify_all();
+        self.shared.sleep_wake.notify_all();
         for handle in self.handles {
             let _ = handle.join();
         }
@@ -148,7 +148,7 @@ impl SolverPool {
 }
 
 fn run_worker(
-    control: SolverControl,
+    shared: SolverShared,
     hashes: Arc<AtomicU64>,
     share_tx: mpsc::Sender<SolvedShare>,
     worker_index: u32,
@@ -158,7 +158,7 @@ fn run_worker(
     let mut observed_generation = 0;
 
     loop {
-        let (job, generation) = wait_for_work(&control, &mut observed_generation, worker_index);
+        let (job, generation) = wait_for_work(&shared, &mut observed_generation, worker_index);
         let Some(job) = job else {
             return;
         };
@@ -166,7 +166,7 @@ fn run_worker(
         let mut batch_start = Instant::now();
         let mut batch_hashes = 0u32;
         loop {
-            if should_yield(&control, generation, worker_index) {
+            if should_yield(&shared, generation, worker_index) {
                 break;
             }
 
@@ -186,7 +186,7 @@ fn run_worker(
             nonce = nonce.wrapping_add(u32::from(nonce_stride));
 
             if should_apply_throttle(batch_hashes, batch_start.elapsed()) {
-                apply_throttle(&control, generation, worker_index, &mut batch_start);
+                apply_throttle(&shared, generation, worker_index, &mut batch_start);
                 batch_hashes = 0;
             }
         }
@@ -194,18 +194,18 @@ fn run_worker(
 }
 
 fn wait_for_work(
-    control: &SolverControl,
+    shared: &SolverShared,
     observed_generation: &mut u64,
     worker_index: u32,
 ) -> (Option<MiningJob>, u64) {
-    let mut job_guard = control.job.lock().expect("lock solver job");
+    let mut job_guard = shared.job.lock().expect("lock solver job");
     loop {
-        if control.shutdown.load(Ordering::Acquire) {
+        if shared.shutdown.load(Ordering::Acquire) {
             return (None, 0);
         }
-        let generation = control.generation.load(Ordering::Acquire);
-        let paused = control.paused.load(Ordering::Acquire);
-        let active_threads = u32::from(control.active_threads.load(Ordering::Acquire));
+        let generation = shared.generation.load(Ordering::Acquire);
+        let paused = shared.paused.load(Ordering::Acquire);
+        let active_threads = u32::from(shared.active_threads.load(Ordering::Acquire));
         if generation != *observed_generation {
             *observed_generation = generation;
         }
@@ -214,24 +214,24 @@ fn wait_for_work(
                 return (Some(job), generation);
             }
         }
-        job_guard = control.wake.wait(job_guard).expect("wait solver wake");
+        job_guard = shared.wake.wait(job_guard).expect("wait solver wake");
     }
 }
 
-fn should_yield(control: &SolverControl, generation: u64, worker_index: u32) -> bool {
-    control.shutdown.load(Ordering::Relaxed)
-        || control.paused.load(Ordering::Relaxed)
-        || control.generation.load(Ordering::Relaxed) != generation
-        || worker_index >= u32::from(control.active_threads.load(Ordering::Relaxed))
+fn should_yield(shared: &SolverShared, generation: u64, worker_index: u32) -> bool {
+    shared.shutdown.load(Ordering::Relaxed)
+        || shared.paused.load(Ordering::Relaxed)
+        || shared.generation.load(Ordering::Relaxed) != generation
+        || worker_index >= u32::from(shared.active_threads.load(Ordering::Relaxed))
 }
 
 fn apply_throttle(
-    control: &SolverControl,
+    shared: &SolverShared,
     generation: u64,
     worker_index: u32,
     batch_start: &mut Instant,
 ) {
-    let cpu_percent = control.cpu_percent.load(Ordering::Relaxed);
+    let cpu_percent = shared.cpu_percent.load(Ordering::Relaxed);
     if cpu_percent >= 100 {
         *batch_start = Instant::now();
         return;
@@ -240,7 +240,7 @@ fn apply_throttle(
     let active = cmp::max(elapsed, THROTTLE_SLICE);
     let target_total = active.mul_f64(100.0 / f64::from(cpu_percent));
     if target_total > elapsed {
-        interruptible_sleep(control, generation, worker_index, target_total - elapsed);
+        interruptible_sleep(shared, generation, worker_index, target_total - elapsed);
     }
     *batch_start = Instant::now();
 }
@@ -250,21 +250,21 @@ fn should_apply_throttle(batch_hashes: u32, elapsed: Duration) -> bool {
 }
 
 fn interruptible_sleep(
-    control: &SolverControl,
+    shared: &SolverShared,
     generation: u64,
     worker_index: u32,
     mut remaining: Duration,
 ) {
     while !remaining.is_zero() {
-        if should_yield(control, generation, worker_index) {
+        if should_yield(shared, generation, worker_index) {
             return;
         }
         let step = remaining.min(THROTTLE_WAIT_SLICE);
-        let sleep_guard = control
+        let sleep_guard = shared
             .sleep_lock
             .lock()
             .expect("lock solver sleep gate for throttle");
-        let (_guard, timeout) = control
+        let (_guard, timeout) = shared
             .sleep_wake
             .wait_timeout(sleep_guard, step)
             .expect("wait throttle wake");

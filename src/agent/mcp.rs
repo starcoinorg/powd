@@ -1,4 +1,4 @@
-use super::app::{AppError, MintApp};
+use super::wallet::{WalletAgent, WalletAgentError};
 use crate::{BudgetMode, EventsSinceResponse, MinerSnapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -7,15 +7,15 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Stdin, 
 
 const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
 
-pub async fn run_mcp(app: MintApp) -> io::Result<()> {
+pub async fn run_mcp(agent: WalletAgent) -> io::Result<()> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    let mut server = McpServer::new(app, stdin, stdout);
+    let mut server = McpServer::new(agent, stdin, stdout);
     server.run().await
 }
 
 struct McpServer {
-    app: MintApp,
+    agent: WalletAgent,
     reader: BufReader<Stdin>,
     writer: Stdout,
 }
@@ -96,9 +96,9 @@ struct ContentBlock {
 }
 
 impl McpServer {
-    fn new(app: MintApp, stdin: Stdin, stdout: Stdout) -> Self {
+    fn new(agent: WalletAgent, stdin: Stdin, stdout: Stdout) -> Self {
         Self {
-            app,
+            agent,
             reader: BufReader::new(stdin),
             writer: stdout,
         }
@@ -203,7 +203,7 @@ impl McpServer {
                     Ok(args) => args,
                     Err(err) => return tool_error(format!("invalid setup args: {err}")),
                 };
-                self.app
+                self.agent
                     .setup(&args.wallet_address)
                     .await
                     .map(|value| json!(value))
@@ -213,29 +213,32 @@ impl McpServer {
                     Ok(args) => args,
                     Err(err) => return tool_error(format!("invalid set_wallet args: {err}")),
                 };
-                self.app
+                self.agent
                     .update_wallet(&args.wallet_address)
                     .await
                     .map(|value| json!(value))
             }
-            "status" => self.app.status().await.map(|value| json!(value)),
-            "start" => self.app.start().await.map(|value| json!(value)),
-            "stop" => self.app.stop().await.map(|value| json!(value)),
-            "pause" => self.app.pause().await.map(|value| json!(value)),
-            "resume" => self.app.resume().await.map(|value| json!(value)),
+            "status" => self.agent.status().await.map(|value| json!(value)),
+            "start" => self.agent.start().await.map(|value| json!(value)),
+            "stop" => self.agent.stop().await.map(|value| json!(value)),
+            "pause" => self.agent.pause().await.map(|value| json!(value)),
+            "resume" => self.agent.resume().await.map(|value| json!(value)),
             "set_mode" => {
                 let args: SetModeArgs = match serde_json::from_value(params.arguments) {
                     Ok(args) => args,
                     Err(err) => return tool_error(format!("invalid set_mode args: {err}")),
                 };
-                self.app.set_mode(args.mode).await.map(|value| json!(value))
+                self.agent
+                    .set_mode(args.mode)
+                    .await
+                    .map(|value| json!(value))
             }
             "events_since" => {
                 let args: EventsSinceArgs = match serde_json::from_value(params.arguments) {
                     Ok(args) => args,
                     Err(err) => return tool_error(format!("invalid events_since args: {err}")),
                 };
-                self.app
+                self.agent
                     .events_since(args.since_seq)
                     .await
                     .map(|value| json!(value))
@@ -420,7 +423,7 @@ fn tool_error(message: String) -> Value {
 }
 
 #[allow(dead_code)]
-fn _keep_types(_: (&MinerSnapshot, &EventsSinceResponse, &AppError)) {}
+fn _keep_types(_: (&MinerSnapshot, &EventsSinceResponse, &WalletAgentError)) {}
 
 #[cfg(test)]
 mod tests {

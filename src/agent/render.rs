@@ -1,7 +1,5 @@
-use super::app::{DoctorReport, WalletConfigSummary};
-use crate::{
-    ControlPlaneMethods, EventsSinceResponse, MinerCapabilities, MinerEvent, MinerSnapshot,
-};
+use super::wallet::{DoctorReport, WalletConfigSummary};
+use crate::{AgentMethods, EventsSinceResponse, MinerCapabilities, MinerEvent, MinerSnapshot};
 use serde::Serialize;
 
 pub(crate) fn print_json_or_text<T, F>(value: &T, json_output: bool, printer: F)
@@ -139,7 +137,7 @@ pub(crate) fn print_capabilities(caps: MinerCapabilities, json: bool) {
     println!("supports_priority: {}", caps.supports_priority);
 }
 
-pub(crate) fn print_methods(methods: ControlPlaneMethods, json: bool) {
+pub(crate) fn print_methods(methods: AgentMethods, json: bool) {
     if json {
         println!(
             "{}",
@@ -147,7 +145,7 @@ pub(crate) fn print_methods(methods: ControlPlaneMethods, json: bool) {
         );
         return;
     }
-    println!("control_plane_version: {}", methods.control_plane_version);
+    println!("agent_api_version: {}", methods.agent_api_version);
     println!("agent_version: {}", methods.agent_version);
     for (name, method) in methods.methods {
         println!("{name}:");

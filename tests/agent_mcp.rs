@@ -8,7 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_mcp_lists_safe_tools_and_supports_setup_then_status() -> Result<()> {
+async fn agent_mcp_lists_safe_tools_and_supports_setup_then_status() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let state_path = temp_test_path("mcp-state", "json");

@@ -1,4 +1,4 @@
-use super::schema::{build_control_plane_methods, ControlPlaneMethods};
+use super::schema::{build_agent_methods, AgentMethods};
 use crate::types::StratumLogin;
 use serde::{Deserialize, Serialize};
 use starcoin_types::genesis_config::ConsensusStrategy;
@@ -185,7 +185,7 @@ impl Display for RunnerError {
 impl std::error::Error for RunnerError {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ControlError {
+pub enum AgentError {
     InvalidConfig(ConfigError),
     NotRunning,
     InvalidBudget(BudgetError),
@@ -197,7 +197,7 @@ pub enum ControlError {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ControlErrorKind {
+pub enum AgentErrorKind {
     InvalidConfig,
     NotRunning,
     InvalidBudget,
@@ -207,7 +207,7 @@ pub enum ControlErrorKind {
     RuntimeFailed,
 }
 
-impl Display for ControlError {
+impl Display for AgentError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidConfig(err) => err.fmt(f),
@@ -223,23 +223,23 @@ impl Display for ControlError {
     }
 }
 
-impl std::error::Error for ControlError {}
+impl std::error::Error for AgentError {}
 
-impl ControlError {
-    pub fn kind(&self) -> ControlErrorKind {
+impl AgentError {
+    pub fn kind(&self) -> AgentErrorKind {
         match self {
-            Self::InvalidConfig(_) => ControlErrorKind::InvalidConfig,
-            Self::NotRunning => ControlErrorKind::NotRunning,
-            Self::InvalidBudget(_) => ControlErrorKind::InvalidBudget,
-            Self::CommandChannelClosed => ControlErrorKind::CommandChannelClosed,
-            Self::RuntimeTerminated => ControlErrorKind::RuntimeTerminated,
-            Self::TransitionTimeout(_) => ControlErrorKind::TransitionTimeout,
-            Self::RuntimeFailed(_) => ControlErrorKind::RuntimeFailed,
+            Self::InvalidConfig(_) => AgentErrorKind::InvalidConfig,
+            Self::NotRunning => AgentErrorKind::NotRunning,
+            Self::InvalidBudget(_) => AgentErrorKind::InvalidBudget,
+            Self::CommandChannelClosed => AgentErrorKind::CommandChannelClosed,
+            Self::RuntimeTerminated => AgentErrorKind::RuntimeTerminated,
+            Self::TransitionTimeout(_) => AgentErrorKind::TransitionTimeout,
+            Self::RuntimeFailed(_) => AgentErrorKind::RuntimeFailed,
         }
     }
 }
 
-impl From<RunnerError> for ControlError {
+impl From<RunnerError> for AgentError {
     fn from(value: RunnerError) -> Self {
         match value {
             RunnerError::InvalidConfig(err) => Self::InvalidConfig(err),
@@ -275,8 +275,8 @@ impl MinerConfig {
         }
     }
 
-    pub fn methods(&self) -> ControlPlaneMethods {
-        build_control_plane_methods(&self.capabilities())
+    pub fn methods(&self) -> AgentMethods {
+        build_agent_methods(&self.capabilities())
     }
 }
 

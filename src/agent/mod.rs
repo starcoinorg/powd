@@ -1,17 +1,17 @@
-mod app;
-mod app_support;
 mod cli;
-mod cli_output;
 mod client;
 mod config;
 mod dashboard;
 mod mcp;
+mod render;
 mod rpc;
 mod state;
+mod wallet;
+mod wallet_support;
 
-pub use cli::{run_cli, ControlCliArgs};
-pub use client::{ControlClientError, ControlConnection, RpcFailure};
-pub use config::{default_socket_path, ControlPlaneArgs};
+pub use cli::{run_cli, AgentCliArgs};
+pub use client::{AgentClientError, AgentConnection, RpcFailure};
+pub use config::{default_socket_path, AgentArgs};
 
 use anyhow::{Context, Result};
 use config::{prepare_socket_path, restrict_socket_permissions};
@@ -20,7 +20,7 @@ use state::SharedState;
 use tokio::net::UnixListener;
 use tokio_util::sync::CancellationToken;
 
-pub async fn run(args: ControlPlaneArgs) -> Result<()> {
+pub async fn run(args: AgentArgs) -> Result<()> {
     let config = args.into_config()?;
     prepare_socket_path(&config.socket_path)?;
     let runner = crate::MinerRunner::new(config.miner_config.clone())?;

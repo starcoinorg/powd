@@ -1,4 +1,4 @@
-use super::app::{AppError, MintApp};
+use super::wallet::{WalletAgent, WalletAgentError};
 use crate::{BudgetMode, EventsSinceResponse, MinerSnapshot};
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -14,12 +14,12 @@ use std::time::{Duration, Instant};
 const DASHBOARD_EVENT_LIMIT: usize = 12;
 const DASHBOARD_REFRESH: Duration = Duration::from_millis(500);
 
-pub async fn run_dashboard(app: MintApp) -> io::Result<()> {
+pub async fn run_dashboard(agent: WalletAgent) -> io::Result<()> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen, Hide)?;
     let mut terminal = TerminalGuard;
-    let result = run_dashboard_loop(app, &mut stdout).await;
+    let result = run_dashboard_loop(agent, &mut stdout).await;
     terminal.restore(&mut stdout)?;
     result
 }
@@ -43,19 +43,19 @@ struct DashboardState {
     wallet_input: Option<String>,
 }
 
-async fn run_dashboard_loop(app: MintApp, stdout: &mut Stdout) -> io::Result<()> {
+async fn run_dashboard_loop(agent: WalletAgent, stdout: &mut Stdout) -> io::Result<()> {
     let mut state = DashboardState::default();
     let mut last_refresh = Instant::now() - DASHBOARD_REFRESH;
     loop {
         if last_refresh.elapsed() >= DASHBOARD_REFRESH {
-            refresh_dashboard(&app, &mut state).await;
+            refresh_dashboard(&agent, &mut state).await;
             render_dashboard(stdout, &state)?;
             last_refresh = Instant::now();
         }
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    if handle_key(&app, &mut state, key.code).await? {
+                    if handle_key(&agent, &mut state, key.code).await? {
                         return Ok(());
                     }
                     render_dashboard(stdout, &state)?;
@@ -66,7 +66,11 @@ async fn run_dashboard_loop(app: MintApp, stdout: &mut Stdout) -> io::Result<()>
     }
 }
 
-async fn handle_key(app: &MintApp, state: &mut DashboardState, code: KeyCode) -> io::Result<bool> {
+async fn handle_key(
+    agent: &WalletAgent,
+    state: &mut DashboardState,
+    code: KeyCode,
+) -> io::Result<bool> {
     if let Some(buffer) = state.wallet_input.as_mut() {
         match code {
             KeyCode::Esc => state.wallet_input = None,
@@ -79,7 +83,7 @@ async fn handle_key(app: &MintApp, state: &mut DashboardState, code: KeyCode) ->
                 if wallet.is_empty() {
                     state.status_message = Some("wallet update cancelled".to_string());
                 } else {
-                    state.status_message = Some(match app.update_wallet(&wallet).await {
+                    state.status_message = Some(match agent.update_wallet(&wallet).await {
                         Ok(summary) => format!("wallet updated: {}", summary.login),
                         Err(err) => err.to_string(),
                     });
@@ -95,27 +99,31 @@ async fn handle_key(app: &MintApp, state: &mut DashboardState, code: KeyCode) ->
 
     let outcome = match code {
         KeyCode::Char('q') => return Ok(true),
-        KeyCode::Char('s') => Some(app.start().await.map(|_| "miner started".to_string())),
-        KeyCode::Char('x') => Some(app.stop().await.map(|_| "miner stopped".to_string())),
-        KeyCode::Char('p') => Some(app.pause().await.map(|_| "miner paused".to_string())),
-        KeyCode::Char('r') => Some(app.resume().await.map(|_| "miner resumed".to_string())),
+        KeyCode::Char('s') => Some(agent.start().await.map(|_| "miner started".to_string())),
+        KeyCode::Char('x') => Some(agent.stop().await.map(|_| "miner stopped".to_string())),
+        KeyCode::Char('p') => Some(agent.pause().await.map(|_| "miner paused".to_string())),
+        KeyCode::Char('r') => Some(agent.resume().await.map(|_| "miner resumed".to_string())),
         KeyCode::Char('1') => Some(
-            app.set_mode(BudgetMode::Conservative)
+            agent
+                .set_mode(BudgetMode::Conservative)
                 .await
                 .map(|_| "mode -> conservative".to_string()),
         ),
         KeyCode::Char('2') => Some(
-            app.set_mode(BudgetMode::Idle)
+            agent
+                .set_mode(BudgetMode::Idle)
                 .await
                 .map(|_| "mode -> idle".to_string()),
         ),
         KeyCode::Char('3') => Some(
-            app.set_mode(BudgetMode::Balanced)
+            agent
+                .set_mode(BudgetMode::Balanced)
                 .await
                 .map(|_| "mode -> balanced".to_string()),
         ),
         KeyCode::Char('4') => Some(
-            app.set_mode(BudgetMode::Aggressive)
+            agent
+                .set_mode(BudgetMode::Aggressive)
                 .await
                 .map(|_| "mode -> aggressive".to_string()),
         ),
@@ -134,14 +142,14 @@ async fn handle_key(app: &MintApp, state: &mut DashboardState, code: KeyCode) ->
     Ok(false)
 }
 
-async fn refresh_dashboard(app: &MintApp, state: &mut DashboardState) {
-    match app.status().await {
+async fn refresh_dashboard(agent: &WalletAgent, state: &mut DashboardState) {
+    match agent.status().await {
         Ok(snapshot) => state.snapshot = Some(snapshot),
-        Err(AppError::NotConfigured) => state.snapshot = None,
+        Err(WalletAgentError::NotConfigured) => state.snapshot = None,
         Err(err) => state.status_message = Some(err.to_string()),
     }
 
-    match app.events_since(state.since_seq).await {
+    match agent.events_since(state.since_seq).await {
         Ok(EventsSinceResponse { next_seq, events }) => {
             state.since_seq = next_seq;
             for event in events {
@@ -155,7 +163,7 @@ async fn refresh_dashboard(app: &MintApp, state: &mut DashboardState) {
                 ));
             }
         }
-        Err(AppError::NotConfigured) => {}
+        Err(WalletAgentError::NotConfigured) => {}
         Err(err) => state.status_message = Some(err.to_string()),
     }
 }

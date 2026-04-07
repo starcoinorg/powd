@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 #[allow(unused_imports)]
-pub use starcoin_cpu_miner::control::ControlConnection as RpcClient;
+pub use starcoin_cpu_miner::agent::AgentConnection as RpcClient;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};

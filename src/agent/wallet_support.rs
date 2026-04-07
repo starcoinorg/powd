@@ -1,5 +1,5 @@
-use super::client::ControlClientError;
-use super::ControlConnection;
+use super::client::AgentClientError;
+use super::AgentConnection;
 use serde::{Deserialize, Serialize};
 use starcoin_types::genesis_config::ConsensusStrategy;
 use std::fmt::{Display, Formatter};
@@ -41,7 +41,7 @@ pub(crate) struct DoctorReport {
 }
 
 #[derive(Debug)]
-pub(crate) enum AppError {
+pub(crate) enum WalletAgentError {
     NotConfigured,
     InvalidWallet(crate::ParseStratumLoginError),
     Io {
@@ -49,7 +49,7 @@ pub(crate) enum AppError {
         source: std::io::Error,
     },
     StateParse(serde_json::Error),
-    Control(ControlClientError),
+    Rpc(AgentClientError),
     Spawn(std::io::Error),
     DaemonBinaryNotFound(PathBuf),
     DaemonExited,
@@ -69,7 +69,7 @@ impl PersistedState {
     }
 }
 
-impl Display for AppError {
+impl Display for WalletAgentError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotConfigured => {
@@ -78,7 +78,7 @@ impl Display for AppError {
             Self::InvalidWallet(err) => err.fmt(f),
             Self::Io { context, source } => write!(f, "{context} failed: {source}"),
             Self::StateParse(err) => write!(f, "parse state file failed: {err}"),
-            Self::Control(err) => err.fmt(f),
+            Self::Rpc(err) => err.fmt(f),
             Self::Spawn(err) => write!(f, "spawn stc-mint-agent failed: {err}"),
             Self::DaemonBinaryNotFound(path) => {
                 write!(
@@ -106,7 +106,7 @@ impl Display for AppError {
     }
 }
 
-impl std::error::Error for AppError {}
+impl std::error::Error for WalletAgentError {}
 
 pub(super) fn default_max_threads() -> u16 {
     let threads = std::thread::available_parallelism()
@@ -122,11 +122,11 @@ pub(super) fn generate_worker_id() -> String {
     format!("agent{:x}", now ^ u128::from(std::process::id()))
 }
 
-pub(super) fn resolve_binary_from_current_exe(name: &str) -> Result<PathBuf, AppError> {
+pub(super) fn resolve_binary_from_current_exe(name: &str) -> Result<PathBuf, WalletAgentError> {
     if let Ok(bin) = std::env::var(format!("CARGO_BIN_EXE_{name}")) {
         return Ok(PathBuf::from(bin));
     }
-    let current = std::env::current_exe().map_err(|source| AppError::Io {
+    let current = std::env::current_exe().map_err(|source| WalletAgentError::Io {
         context: "resolve current executable",
         source,
     })?;
@@ -148,7 +148,7 @@ pub(super) fn resolve_binary_from_current_exe(name: &str) -> Result<PathBuf, App
             return Ok(candidate);
         }
     }
-    Err(AppError::DaemonBinaryNotFound(current))
+    Err(WalletAgentError::DaemonBinaryNotFound(current))
 }
 
 pub(super) fn consensus_strategy_name(strategy: ConsensusStrategy) -> &'static str {
@@ -189,11 +189,11 @@ pub(super) async fn wait_for_daemon_ready(
     child: &mut Child,
     socket_path: &Path,
     timeout: Duration,
-) -> Result<(), AppError> {
+) -> Result<(), WalletAgentError> {
     let start = Instant::now();
     loop {
         if socket_path.exists()
-            && ControlConnection::connect(socket_path, Duration::from_millis(200))
+            && AgentConnection::connect(socket_path, Duration::from_millis(200))
                 .await
                 .is_ok()
         {
@@ -201,16 +201,16 @@ pub(super) async fn wait_for_daemon_ready(
         }
         if child
             .try_wait()
-            .map_err(|source| AppError::Io {
+            .map_err(|source| WalletAgentError::Io {
                 context: "poll daemon child",
                 source,
             })?
             .is_some()
         {
-            return Err(AppError::DaemonExited);
+            return Err(WalletAgentError::DaemonExited);
         }
         if start.elapsed() >= timeout {
-            return Err(AppError::DaemonStartTimeout(timeout));
+            return Err(WalletAgentError::DaemonStartTimeout(timeout));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

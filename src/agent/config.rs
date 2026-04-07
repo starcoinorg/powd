@@ -17,7 +17,7 @@ const DEFAULT_STATUS_INTERVAL_SECS: u64 = 10;
     name = "stc-mint-agent",
     after_help = "Runtime defaults:\n  Initial mode when the daemon starts: conservative\n  conservative = threads=1, cpu_percent=50, priority=background\n  Preset modes can be changed later via stc-mint-agentctl set-mode."
 )]
-pub struct ControlPlaneArgs {
+pub struct AgentArgs {
     #[arg(
         long,
         help = "Stratum pool endpoint, for example main-stratum.starcoin.org:9888"
@@ -54,7 +54,7 @@ pub struct ControlPlaneArgs {
         help = "Status log interval in seconds"
     )]
     pub status_interval_secs: u64,
-    #[arg(long, help = "Unix socket path for the local control plane")]
+    #[arg(long, help = "Unix socket path for the local API")]
     pub socket: Option<PathBuf>,
 }
 
@@ -66,14 +66,14 @@ pub enum CliConsensusStrategy {
     Cryptonight,
 }
 
-pub struct ControlPlaneConfig {
+pub struct AgentConfig {
     pub socket_path: PathBuf,
     pub miner_config: MinerConfig,
     pub initial_budget: Budget,
 }
 
-impl ControlPlaneArgs {
-    pub fn into_config(self) -> Result<ControlPlaneConfig> {
+impl AgentArgs {
+    pub fn into_config(self) -> Result<AgentConfig> {
         let socket_path = self.socket.unwrap_or_else(default_socket_path);
         let login: StratumLogin = self.login.parse().with_context(|| "parse --login failed")?;
         let max_threads = parse_max_threads(self.max_threads.unwrap_or_else(default_threads))?;
@@ -88,7 +88,7 @@ impl ControlPlaneArgs {
             status_interval: Duration::from_secs(self.status_interval_secs),
             exit_after_accepted: None,
         };
-        Ok(ControlPlaneConfig {
+        Ok(AgentConfig {
             socket_path,
             initial_budget: default_initial_budget(max_threads),
             miner_config,

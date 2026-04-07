@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use std::process::Command;
 use std::time::Duration;
-use support::control_plane::{AgentProcess, RpcClient};
+use support::agent_rpc::{AgentProcess, RpcClient};
 use support::fake_pool::SilentKeepalivePool;
 use support::process::{resolve_stc_mint_agentctl_bin, TEST_MUTEX};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -13,7 +13,7 @@ use tokio::process::Command as TokioCommand;
 const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_cli_supports_status_and_capabilities() -> Result<()> {
+async fn agent_cli_supports_status_and_capabilities() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = SilentKeepalivePool::start().await?;
@@ -36,7 +36,7 @@ async fn control_cli_supports_status_and_capabilities() -> Result<()> {
     assert_eq!(status_json["current_budget"]["priority"], "background");
 
     let methods = run_ctl_json(agent.socket_path(), &["methods"]).await?;
-    assert_eq!(methods["control_plane_version"], 1);
+    assert_eq!(methods["agent_api_version"], 1);
     assert_eq!(
         methods["methods"]["budget.set_mode"]["params"]["fields"]["mode"]["enum_values"],
         serde_json::json!(["conservative", "idle", "balanced", "aggressive"])
@@ -45,7 +45,7 @@ async fn control_cli_supports_status_and_capabilities() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_cli_supports_wallet_setup_doctor_and_mcp_config() -> Result<()> {
+async fn agent_cli_supports_wallet_setup_doctor_and_mcp_config() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let state_path = support::process::temp_test_path("mint-state", "json");
@@ -100,7 +100,7 @@ async fn control_cli_supports_wallet_setup_doctor_and_mcp_config() -> Result<()>
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_cli_help_shows_mode_mapping_and_daemon_default_budget() -> Result<()> {
+async fn agent_cli_help_shows_mode_mapping_and_daemon_default_budget() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let ctl_bin = resolve_stc_mint_agentctl_bin()?;
@@ -136,7 +136,7 @@ async fn control_cli_help_shows_mode_mapping_and_daemon_default_budget() -> Resu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_cli_lifecycle_and_budget_commands_work() -> Result<()> {
+async fn agent_cli_lifecycle_and_budget_commands_work() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = SilentKeepalivePool::start().await?;
@@ -177,7 +177,7 @@ async fn control_cli_lifecycle_and_budget_commands_work() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_cli_rejects_invalid_arguments() -> Result<()> {
+async fn agent_cli_rejects_invalid_arguments() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = SilentKeepalivePool::start().await?;
@@ -207,7 +207,7 @@ async fn control_cli_rejects_invalid_arguments() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_cli_streams_events() -> Result<()> {
+async fn agent_cli_streams_events() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = SilentKeepalivePool::start().await?;
@@ -249,7 +249,7 @@ async fn control_cli_streams_events() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn control_cli_reads_events_since() -> Result<()> {
+async fn agent_cli_reads_events_since() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = SilentKeepalivePool::start().await?;

@@ -5,7 +5,7 @@ use super::runtime_support::{
 use super::solver::{SolverPool, SolverPoolGuard};
 use super::state::{ConnectFailure, ConnectState, InflightSubmit, RuntimeState};
 use super::{
-    Budget, BudgetMode, ControlError, MinerCapabilities, MinerConfig, MinerEvent, MinerSnapshot,
+    AgentError, Budget, BudgetMode, MinerCapabilities, MinerConfig, MinerEvent, MinerSnapshot,
     MinerState, RunnerError,
 };
 use crate::mining::job::{MiningJob, SolvedShare};
@@ -170,13 +170,13 @@ impl MinerHandle {
         self.events_tx.subscribe()
     }
 
-    pub async fn pause(&self) -> std::result::Result<MinerSnapshot, ControlError> {
+    pub async fn pause(&self) -> std::result::Result<MinerSnapshot, AgentError> {
         self.send_command(RuntimeCommand::Pause)?;
         self.wait_for_snapshot(|snapshot| snapshot.state == MinerState::Paused, "pause")
             .await
     }
 
-    pub async fn resume(&self) -> std::result::Result<MinerSnapshot, ControlError> {
+    pub async fn resume(&self) -> std::result::Result<MinerSnapshot, AgentError> {
         self.send_command(RuntimeCommand::Resume)?;
         self.wait_for_snapshot(
             |snapshot| {
@@ -193,10 +193,10 @@ impl MinerHandle {
     pub async fn set_budget(
         &self,
         budget: Budget,
-    ) -> std::result::Result<MinerSnapshot, ControlError> {
+    ) -> std::result::Result<MinerSnapshot, AgentError> {
         let budget = budget
             .validate(self.capabilities.max_threads)
-            .map_err(ControlError::InvalidBudget)?;
+            .map_err(AgentError::InvalidBudget)?;
         self.send_command(RuntimeCommand::SetBudget(budget))?;
         self.wait_for_snapshot(
             move |snapshot| snapshot.current_budget == budget,
@@ -208,7 +208,7 @@ impl MinerHandle {
     pub async fn set_mode(
         &self,
         mode: BudgetMode,
-    ) -> std::result::Result<MinerSnapshot, ControlError> {
+    ) -> std::result::Result<MinerSnapshot, AgentError> {
         let logical_cpus = std::thread::available_parallelism()
             .map(|parallelism| parallelism.get())
             .unwrap_or(1);
@@ -217,12 +217,12 @@ impl MinerHandle {
         self.set_budget(budget).await
     }
 
-    pub async fn stop(&self) -> std::result::Result<MinerSnapshot, ControlError> {
+    pub async fn stop(&self) -> std::result::Result<MinerSnapshot, AgentError> {
         self.shutdown.cancel();
         let _ = self.send_command(RuntimeCommand::Stop);
         self.wait_for_termination()
             .await
-            .map_err(|err| ControlError::RuntimeFailed(err.to_string()))?;
+            .map_err(|err| AgentError::RuntimeFailed(err.to_string()))?;
         Ok(self.snapshot())
     }
 
@@ -240,20 +240,20 @@ impl MinerHandle {
         }
     }
 
-    fn send_command(&self, command: RuntimeCommand) -> std::result::Result<(), ControlError> {
+    fn send_command(&self, command: RuntimeCommand) -> std::result::Result<(), AgentError> {
         if self.is_terminal() {
-            return Err(ControlError::RuntimeTerminated);
+            return Err(AgentError::RuntimeTerminated);
         }
         self.commands
             .send(command)
-            .map_err(|_| ControlError::CommandChannelClosed)
+            .map_err(|_| AgentError::CommandChannelClosed)
     }
 
     async fn wait_for_snapshot<P>(
         &self,
         predicate: P,
         transition: &'static str,
-    ) -> std::result::Result<MinerSnapshot, ControlError>
+    ) -> std::result::Result<MinerSnapshot, AgentError>
     where
         P: Fn(&MinerSnapshot) -> bool,
     {
@@ -266,12 +266,12 @@ impl MinerHandle {
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
-                return Err(ControlError::TransitionTimeout(transition));
+                return Err(AgentError::TransitionTimeout(transition));
             }
             tokio::time::timeout(remaining, snapshots.changed())
                 .await
-                .map_err(|_| ControlError::TransitionTimeout(transition))?
-                .map_err(|_| ControlError::RuntimeTerminated)?;
+                .map_err(|_| AgentError::TransitionTimeout(transition))?
+                .map_err(|_| AgentError::RuntimeTerminated)?;
             if predicate(&snapshots.borrow()) {
                 return Ok(snapshots.borrow().clone());
             }
@@ -469,7 +469,7 @@ fn handle_command(
     solver: &SolverPool,
     state: &mut RuntimeState,
     ctx: &RuntimeCtx<'_>,
-) -> std::result::Result<bool, ControlError> {
+) -> std::result::Result<bool, AgentError> {
     match command {
         RuntimeCommand::Pause => {
             solver.pause();

@@ -1,8 +1,8 @@
 use clap::Parser;
-use starcoin_cpu_miner::control::{run_cli, ControlCliArgs};
+use starcoin_cpu_miner::agent::{run_cli, AgentCliArgs};
 use std::process::ExitCode;
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    run_cli(ControlCliArgs::parse()).await
+    run_cli(AgentCliArgs::parse()).await
 }

@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 #[derive(Parser, Debug)]
 #[command(
     name = "stc-mint-miner",
-    about = "Direct CPU miner that connects to a Stratum pool without the local control plane"
+    about = "Direct CPU miner that connects to a Stratum pool without the local API"
 )]
 struct Cli {
     #[arg(

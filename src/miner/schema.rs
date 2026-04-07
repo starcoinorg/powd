@@ -1,12 +1,12 @@
-use super::{ControlErrorKind, MinerCapabilities};
+use super::{AgentErrorKind, MinerCapabilities};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub const CONTROL_PLANE_VERSION: u32 = 1;
+pub const AGENT_API_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ControlPlaneMethods {
-    pub control_plane_version: u32,
+pub struct AgentMethods {
+    pub agent_api_version: u32,
     pub agent_version: String,
     pub methods: BTreeMap<String, MethodSpec>,
 }
@@ -41,25 +41,25 @@ pub struct MethodFieldSchema {
 pub struct MethodErrorSchema {
     pub code: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ControlErrorKind>,
+    pub kind: Option<AgentErrorKind>,
     pub description: String,
 }
 
-pub fn build_control_plane_methods(capabilities: &MinerCapabilities) -> ControlPlaneMethods {
+pub fn build_agent_methods(capabilities: &MinerCapabilities) -> AgentMethods {
     let common_runtime_errors = vec![
         MethodErrorSchema {
             code: -32000,
-            kind: Some(ControlErrorKind::RuntimeFailed),
+            kind: Some(AgentErrorKind::RuntimeFailed),
             description: "runtime failed while processing request".to_string(),
         },
         MethodErrorSchema {
             code: -32000,
-            kind: Some(ControlErrorKind::RuntimeTerminated),
+            kind: Some(AgentErrorKind::RuntimeTerminated),
             description: "runtime terminated before request completed".to_string(),
         },
         MethodErrorSchema {
             code: -32000,
-            kind: Some(ControlErrorKind::TransitionTimeout),
+            kind: Some(AgentErrorKind::TransitionTimeout),
             description: "runtime state transition timed out".to_string(),
         },
     ];
@@ -125,17 +125,17 @@ pub fn build_control_plane_methods(capabilities: &MinerCapabilities) -> ControlP
                 },
                 MethodErrorSchema {
                     code: -32000,
-                    kind: Some(ControlErrorKind::RuntimeFailed),
+                    kind: Some(AgentErrorKind::RuntimeFailed),
                     description: "runtime failed while processing request".to_string(),
                 },
                 MethodErrorSchema {
                     code: -32000,
-                    kind: Some(ControlErrorKind::RuntimeTerminated),
+                    kind: Some(AgentErrorKind::RuntimeTerminated),
                     description: "runtime terminated before request completed".to_string(),
                 },
                 MethodErrorSchema {
                     code: -32000,
-                    kind: Some(ControlErrorKind::TransitionTimeout),
+                    kind: Some(AgentErrorKind::TransitionTimeout),
                     description: "runtime state transition timed out".to_string(),
                 },
             ],
@@ -192,22 +192,22 @@ pub fn build_control_plane_methods(capabilities: &MinerCapabilities) -> ControlP
                 },
                 MethodErrorSchema {
                     code: -32000,
-                    kind: Some(ControlErrorKind::InvalidBudget),
+                    kind: Some(AgentErrorKind::InvalidBudget),
                     description: "budget is outside supported limits".to_string(),
                 },
                 MethodErrorSchema {
                     code: -32000,
-                    kind: Some(ControlErrorKind::RuntimeFailed),
+                    kind: Some(AgentErrorKind::RuntimeFailed),
                     description: "runtime failed while processing request".to_string(),
                 },
                 MethodErrorSchema {
                     code: -32000,
-                    kind: Some(ControlErrorKind::RuntimeTerminated),
+                    kind: Some(AgentErrorKind::RuntimeTerminated),
                     description: "runtime terminated before request completed".to_string(),
                 },
                 MethodErrorSchema {
                     code: -32000,
-                    kind: Some(ControlErrorKind::TransitionTimeout),
+                    kind: Some(AgentErrorKind::TransitionTimeout),
                     description: "runtime state transition timed out".to_string(),
                 },
             ],
@@ -233,7 +233,7 @@ pub fn build_control_plane_methods(capabilities: &MinerCapabilities) -> ControlP
         "status.methods".to_string(),
         MethodSpec {
             params: None,
-            result: "control_plane_methods".to_string(),
+            result: "agent_methods".to_string(),
             errors: Vec::new(),
         },
     );
@@ -274,8 +274,8 @@ pub fn build_control_plane_methods(capabilities: &MinerCapabilities) -> ControlP
         },
     );
 
-    ControlPlaneMethods {
-        control_plane_version: CONTROL_PLANE_VERSION,
+    AgentMethods {
+        agent_api_version: AGENT_API_VERSION,
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         methods,
     }
@@ -283,8 +283,8 @@ pub fn build_control_plane_methods(capabilities: &MinerCapabilities) -> ControlP
 
 pub(crate) fn serde_name<T: Serialize>(value: &T) -> String {
     serde_json::to_value(value)
-        .expect("serialize control schema enum")
+        .expect("serialize agent schema enum")
         .as_str()
-        .expect("control schema enum should serialize to string")
+        .expect("agent schema enum should serialize to string")
         .to_string()
 }

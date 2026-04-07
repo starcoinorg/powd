@@ -1,5 +1,5 @@
 use super::state::{BudgetUpdate, SharedState};
-use crate::{BudgetMode, ControlError, ControlErrorKind, MinerEvent, Priority};
+use crate::{AgentError, AgentErrorKind, BudgetMode, MinerEvent, Priority};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -42,13 +42,13 @@ struct RpcError {
 #[derive(Serialize)]
 struct RpcErrorData {
     #[serde(skip_serializing_if = "Option::is_none")]
-    kind: Option<ControlErrorKind>,
+    kind: Option<AgentErrorKind>,
 }
 
 pub struct RpcFailure {
     pub code: i64,
     pub message: String,
-    pub kind: Option<ControlErrorKind>,
+    pub kind: Option<AgentErrorKind>,
 }
 
 #[derive(Serialize)]
@@ -179,28 +179,19 @@ async fn handle_request(
     validate_request(&request)?;
     match request.method.as_str() {
         "miner.start" => Ok(ResponseMode::Single(serialize_result(
-            state
-                .start()
-                .await
-                .map_err(|err| RpcFailure::control(&err))?,
+            state.start().await.map_err(|err| RpcFailure::agent(&err))?,
         )?)),
         "miner.stop" => Ok(ResponseMode::Single(serialize_result(
-            state
-                .stop()
-                .await
-                .map_err(|err| RpcFailure::control(&err))?,
+            state.stop().await.map_err(|err| RpcFailure::agent(&err))?,
         )?)),
         "miner.pause" => Ok(ResponseMode::Single(serialize_result(
-            state
-                .pause()
-                .await
-                .map_err(|err| RpcFailure::control(&err))?,
+            state.pause().await.map_err(|err| RpcFailure::agent(&err))?,
         )?)),
         "miner.resume" => Ok(ResponseMode::Single(serialize_result(
             state
                 .resume()
                 .await
-                .map_err(|err| RpcFailure::control(&err))?,
+                .map_err(|err| RpcFailure::agent(&err))?,
         )?)),
         "budget.set_mode" => {
             let params: SetModeParams = parse_params(request.params)?;
@@ -208,7 +199,7 @@ async fn handle_request(
                 state
                     .set_mode(params.mode)
                     .await
-                    .map_err(|err| RpcFailure::control(&err))?,
+                    .map_err(|err| RpcFailure::agent(&err))?,
             )?))
         }
         "budget.set" => {
@@ -221,7 +212,7 @@ async fn handle_request(
                         priority: params.priority,
                     })
                     .await
-                    .map_err(|err| RpcFailure::control(&err))?,
+                    .map_err(|err| RpcFailure::agent(&err))?,
             )?))
         }
         "status.get" => Ok(ResponseMode::Single(serialize_result(
@@ -327,7 +318,7 @@ impl RpcFailure {
         }
     }
 
-    fn control(err: &ControlError) -> Self {
+    fn agent(err: &AgentError) -> Self {
         Self {
             code: -32000,
             message: err.to_string(),
