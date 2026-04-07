@@ -85,6 +85,14 @@ pub(crate) fn print_status(snapshot: MinerSnapshot, json: bool) {
     println!("connected: {}", snapshot.connected);
     println!("pool: {}", snapshot.pool);
     println!("worker_name: {}", snapshot.worker_name);
+    println!(
+        "mode: {}",
+        snapshot
+            .current_mode
+            .as_ref()
+            .map(serde_name)
+            .unwrap_or_else(|| "custom_budget".to_string())
+    );
     println!("hashrate: {:.2} H/s", snapshot.hashrate);
     println!("hashrate_5m: {:.2} H/s", snapshot.hashrate_5m);
     println!("accepted: {}", snapshot.accepted);
@@ -193,9 +201,14 @@ pub(crate) fn format_event(event: &MinerEvent) -> String {
         | MinerEvent::Reconnecting { snapshot }
         | MinerEvent::BudgetChanged { snapshot }
         | MinerEvent::ShareAccepted { snapshot } => format!(
-            "{} state={} connected={} accepted={} rejected={} hashrate={:.2}",
+            "{} state={} mode={} connected={} accepted={} rejected={} hashrate={:.2}",
             event_type(event),
             serde_name(&snapshot.state),
+            snapshot
+                .current_mode
+                .as_ref()
+                .map(serde_name)
+                .unwrap_or_else(|| "custom_budget".to_string()),
             snapshot.connected,
             snapshot.accepted,
             snapshot.rejected,

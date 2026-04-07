@@ -91,6 +91,8 @@ The scheduling loop also stays in OpenClaw:
 - `setup`
 - `set_wallet`
 - `status`
+- `capabilities`
+- `methods`
 - `start`
 - `stop`
 - `pause`
@@ -228,6 +230,7 @@ The primary read methods are:
 - `connected`
 - `pool`
 - `worker_name`
+- `current_mode`
 - `hashrate`
 - `hashrate_5m`
 - `accepted`
@@ -241,6 +244,11 @@ The primary read methods are:
 - `uptime_secs`
 - `current_budget`
 - `last_error`
+
+`current_mode` has fixed semantics:
+
+- preset changes through `set_mode` return the active mode
+- raw `set-budget` switches into a custom budget and returns `null`
 
 ### 7.2 Events
 

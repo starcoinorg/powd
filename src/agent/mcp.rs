@@ -1,5 +1,5 @@
-use super::wallet::{WalletAgent, WalletAgentError};
-use crate::{BudgetMode, EventsSinceResponse, MinerSnapshot};
+use super::wallet::WalletAgent;
+use crate::BudgetMode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io;
@@ -219,6 +219,8 @@ impl McpServer {
                     .map(|value| json!(value))
             }
             "status" => self.agent.status().await.map(|value| json!(value)),
+            "capabilities" => self.agent.capabilities().await.map(|value| json!(value)),
+            "methods" => self.agent.methods().await,
             "start" => self.agent.start().await.map(|value| json!(value)),
             "stop" => self.agent.stop().await.map(|value| json!(value)),
             "pause" => self.agent.pause().await.map(|value| json!(value)),
@@ -300,6 +302,16 @@ fn tool_specs() -> Vec<ToolSpec> {
         ToolSpec {
             name: "status",
             description: "Read the current miner snapshot.",
+            input_schema: object_schema(&[]),
+        },
+        ToolSpec {
+            name: "capabilities",
+            description: "Read supported modes, priorities, and thread limits.",
+            input_schema: object_schema(&[]),
+        },
+        ToolSpec {
+            name: "methods",
+            description: "Read the self-describing local API method schema.",
             input_schema: object_schema(&[]),
         },
         ToolSpec {
@@ -422,9 +434,6 @@ fn tool_error(message: String) -> Value {
     .expect("encode error tool result")
 }
 
-#[allow(dead_code)]
-fn _keep_types(_: (&MinerSnapshot, &EventsSinceResponse, &WalletAgentError)) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,6 +450,8 @@ mod tests {
                 "setup",
                 "set_wallet",
                 "status",
+                "capabilities",
+                "methods",
                 "start",
                 "stop",
                 "pause",

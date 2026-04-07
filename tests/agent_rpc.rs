@@ -42,6 +42,7 @@ async fn agent_rpc_reports_capabilities_and_updates_budget() -> Result<()> {
 
     let status = rpc.call_value("status.get", None, RPC_TIMEOUT).await?;
     assert_eq!(status["state"], "stopped");
+    assert_eq!(status["current_mode"], "conservative");
     assert_eq!(status["hashrate_5m"], 0.0);
     assert_eq!(status["submitted_5m"], 0);
 
@@ -56,6 +57,7 @@ async fn agent_rpc_reports_capabilities_and_updates_budget() -> Result<()> {
         )
         .await?;
     assert_eq!(idle["state"], "stopped");
+    assert_eq!(idle["current_mode"], "conservative");
     assert_eq!(idle["current_budget"]["threads"], 1);
     assert_eq!(idle["current_budget"]["cpu_percent"], 50);
 
@@ -66,6 +68,7 @@ async fn agent_rpc_reports_capabilities_and_updates_budget() -> Result<()> {
             RPC_TIMEOUT,
         )
         .await?;
+    assert_eq!(custom["current_mode"], Value::Null);
     assert_eq!(custom["current_budget"]["threads"], 2);
     assert_eq!(custom["current_budget"]["cpu_percent"], 33);
     assert_eq!(custom["current_budget"]["priority"], "background");
@@ -107,6 +110,7 @@ async fn agent_rpc_lifecycle_and_events_work() -> Result<()> {
 
     let paused = ctl.call_value("miner.pause", None, RPC_TIMEOUT).await?;
     assert_eq!(paused["state"], "paused");
+    assert_eq!(paused["current_mode"], "conservative");
     assert_eq!(
         wait_for_event_type(&mut events, "paused").await?["params"]["type"],
         "paused"

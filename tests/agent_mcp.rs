@@ -44,6 +44,8 @@ async fn agent_mcp_lists_safe_tools_and_supports_setup_then_status() -> Result<(
             "setup",
             "set_wallet",
             "status",
+            "capabilities",
+            "methods",
             "start",
             "stop",
             "pause",
@@ -82,8 +84,42 @@ async fn agent_mcp_lists_safe_tools_and_supports_setup_then_status() -> Result<(
         .await?;
     assert_eq!(status["result"]["structuredContent"]["state"], "stopped");
     assert_eq!(
+        status["result"]["structuredContent"]["current_mode"],
+        "conservative"
+    );
+    assert_eq!(
         status["result"]["structuredContent"]["current_budget"]["cpu_percent"],
         50
+    );
+
+    let capabilities = client
+        .request(
+            5,
+            "tools/call",
+            json!({
+                "name": "capabilities",
+                "arguments": {}
+            }),
+        )
+        .await?;
+    assert_eq!(
+        capabilities["result"]["structuredContent"]["supported_modes"],
+        json!(["conservative", "idle", "balanced", "aggressive"])
+    );
+
+    let methods = client
+        .request(
+            6,
+            "tools/call",
+            json!({
+                "name": "methods",
+                "arguments": {}
+            }),
+        )
+        .await?;
+    assert_eq!(
+        methods["result"]["structuredContent"]["agent_api_version"],
+        1
     );
 
     let _ = child.kill().await;

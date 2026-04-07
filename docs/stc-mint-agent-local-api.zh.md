@@ -91,6 +91,8 @@ OpenClaw 不直接连 miner，也不直接调 CLI 字符串。
 - `setup`
 - `set_wallet`
 - `status`
+- `capabilities`
+- `methods`
 - `start`
 - `stop`
 - `pause`
@@ -228,6 +230,7 @@ MCP、CLI 和 dashboard 在需要 daemon 的操作前，都会先探测本地 so
 - `connected`
 - `pool`
 - `worker_name`
+- `current_mode`
 - `hashrate`
 - `hashrate_5m`
 - `accepted`
@@ -241,6 +244,11 @@ MCP、CLI 和 dashboard 在需要 daemon 的操作前，都会先探测本地 so
 - `uptime_secs`
 - `current_budget`
 - `last_error`
+
+`current_mode` 的语义固定为：
+
+- 通过 `set_mode` 应用 preset 时，返回具体 mode
+- 通过原始 `set-budget` 进入自定义预算时，返回 `null`
 
 ### 7.2 事件
 

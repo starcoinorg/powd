@@ -215,6 +215,7 @@ impl RuntimeState {
             connected: self.client.is_some(),
             pool: pool.to_string(),
             worker_name: worker_name.to_string(),
+            current_mode: None,
             hashrate: self.last_hashrate,
             hashrate_5m: rolling.hashrate,
             accepted: self.accepted,

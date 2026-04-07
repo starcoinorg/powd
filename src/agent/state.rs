@@ -27,6 +27,7 @@ struct DaemonState {
     config: MinerConfig,
     runner: MinerRunner,
     budget: Budget,
+    current_mode: Option<BudgetMode>,
     handle: Option<MinerHandle>,
 }
 
@@ -43,6 +44,7 @@ impl SharedState {
                 config,
                 runner,
                 budget,
+                current_mode: Some(BudgetMode::Conservative),
                 handle: None,
             })),
             ops: Arc::new(Mutex::new(())),
@@ -71,13 +73,13 @@ impl SharedState {
         let _op = self.ops.lock().await;
         let mut guard = self.inner.lock().await;
         if let Some(handle) = guard.handle.as_ref() {
-            let snapshot = handle.snapshot();
+            let snapshot = guard.apply_mode(handle.snapshot());
             if !is_terminal(snapshot.state) {
                 return Ok(snapshot);
             }
         }
         let handle = guard.runner.spawn(guard.budget).map_err(AgentError::from)?;
-        let snapshot = handle.snapshot();
+        let snapshot = guard.apply_mode(handle.snapshot());
         let events = handle.subscribe_events();
         guard.handle = Some(handle);
         drop(guard);
@@ -103,7 +105,10 @@ impl SharedState {
         let _op = self.ops.lock().await;
         let handle = self.inner.lock().await.handle.clone();
         match handle {
-            Some(handle) if !is_terminal(handle.snapshot().state) => handle.resume().await,
+            Some(handle) if !is_terminal(handle.snapshot().state) => {
+                let snapshot = handle.resume().await?;
+                Ok(self.inner.lock().await.apply_mode(snapshot))
+            }
             _ => Ok(self.snapshot().await),
         }
     }
@@ -115,7 +120,7 @@ impl SharedState {
         let _op = self.ops.lock().await;
         let capabilities = self.capabilities().await;
         let budget = default_budget_for_mode(mode, capabilities.max_threads, logical_cpus());
-        self.apply_budget_locked(budget).await
+        self.apply_budget_locked(budget, Some(mode)).await
     }
 
     pub async fn set_budget(
@@ -138,7 +143,7 @@ impl SharedState {
             .validate(guard.capabilities().max_threads)
             .map_err(AgentError::InvalidBudget)?
         };
-        self.apply_budget_locked(budget).await
+        self.apply_budget_locked(budget, None).await
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<MinerEvent> {
@@ -156,7 +161,10 @@ impl SharedState {
     async fn pause_locked(&self) -> std::result::Result<MinerSnapshot, AgentError> {
         let handle = self.inner.lock().await.handle.clone();
         match handle {
-            Some(handle) if !is_terminal(handle.snapshot().state) => handle.pause().await,
+            Some(handle) if !is_terminal(handle.snapshot().state) => {
+                let snapshot = handle.pause().await?;
+                Ok(self.inner.lock().await.apply_mode(snapshot))
+            }
             _ => Ok(self.snapshot().await),
         }
     }
@@ -164,15 +172,18 @@ impl SharedState {
     async fn apply_budget_locked(
         &self,
         budget: Budget,
+        current_mode: Option<BudgetMode>,
     ) -> std::result::Result<MinerSnapshot, AgentError> {
         let handle = {
             let mut guard = self.inner.lock().await;
             guard.budget = budget;
+            guard.current_mode = current_mode;
             guard.handle.clone()
         };
         if let Some(handle) = handle {
             if !is_terminal(handle.snapshot().state) {
-                return handle.set_budget(budget).await;
+                let snapshot = handle.set_budget(budget).await?;
+                return Ok(self.inner.lock().await.apply_mode(snapshot));
             }
         }
         Ok(self.snapshot().await)
@@ -181,10 +192,12 @@ impl SharedState {
     fn spawn_event_forwarder(&self, mut events: broadcast::Receiver<MinerEvent>) {
         let events_tx = self.events_tx.clone();
         let event_log = Arc::clone(&self.event_log);
+        let inner = Arc::clone(&self.inner);
         tokio::spawn(async move {
             loop {
                 match events.recv().await {
                     Ok(event) => {
+                        let event = inner.lock().await.apply_mode_to_event(event);
                         event_log.lock().await.push(event.clone());
                         let _ = events_tx.send(event);
                     }
@@ -198,7 +211,8 @@ impl SharedState {
 
 impl DaemonState {
     fn snapshot(&self) -> MinerSnapshot {
-        self.handle
+        let snapshot = self
+            .handle
             .as_ref()
             .map(MinerHandle::snapshot)
             .unwrap_or_else(|| MinerSnapshot {
@@ -206,6 +220,7 @@ impl DaemonState {
                 connected: false,
                 pool: self.config.pool.clone(),
                 worker_name: self.config.login.worker_name().to_string(),
+                current_mode: None,
                 hashrate: 0.0,
                 hashrate_5m: 0.0,
                 accepted: 0,
@@ -219,7 +234,8 @@ impl DaemonState {
                 uptime_secs: 0,
                 current_budget: self.budget,
                 last_error: None,
-            })
+            });
+        self.apply_mode(snapshot)
     }
 
     fn capabilities(&self) -> MinerCapabilities {
@@ -228,6 +244,45 @@ impl DaemonState {
 
     fn methods(&self) -> AgentMethods {
         self.config.methods()
+    }
+
+    fn apply_mode(&self, mut snapshot: MinerSnapshot) -> MinerSnapshot {
+        snapshot.current_mode = self.current_mode;
+        snapshot
+    }
+
+    fn apply_mode_to_event(&self, event: MinerEvent) -> MinerEvent {
+        match event {
+            MinerEvent::Started { snapshot } => MinerEvent::Started {
+                snapshot: self.apply_mode(snapshot),
+            },
+            MinerEvent::Paused { snapshot } => MinerEvent::Paused {
+                snapshot: self.apply_mode(snapshot),
+            },
+            MinerEvent::Resumed { snapshot } => MinerEvent::Resumed {
+                snapshot: self.apply_mode(snapshot),
+            },
+            MinerEvent::Stopped { snapshot } => MinerEvent::Stopped {
+                snapshot: self.apply_mode(snapshot),
+            },
+            MinerEvent::Reconnecting { snapshot } => MinerEvent::Reconnecting {
+                snapshot: self.apply_mode(snapshot),
+            },
+            MinerEvent::BudgetChanged { snapshot } => MinerEvent::BudgetChanged {
+                snapshot: self.apply_mode(snapshot),
+            },
+            MinerEvent::ShareAccepted { snapshot } => MinerEvent::ShareAccepted {
+                snapshot: self.apply_mode(snapshot),
+            },
+            MinerEvent::ShareRejected { snapshot, reason } => MinerEvent::ShareRejected {
+                snapshot: self.apply_mode(snapshot),
+                reason,
+            },
+            MinerEvent::Error { snapshot, message } => MinerEvent::Error {
+                snapshot: self.apply_mode(snapshot),
+                message,
+            },
+        }
     }
 }
 

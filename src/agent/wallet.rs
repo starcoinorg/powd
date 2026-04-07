@@ -285,6 +285,7 @@ impl WalletAgent {
             connected: false,
             pool: config.pool,
             worker_name: config.login.worker_name().to_string(),
+            current_mode: Some(BudgetMode::Conservative),
             hashrate: 0.0,
             hashrate_5m: 0.0,
             accepted: 0,

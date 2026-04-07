@@ -66,6 +66,7 @@ pub struct MinerSnapshot {
     pub connected: bool,
     pub pool: String,
     pub worker_name: String,
+    pub current_mode: Option<BudgetMode>,
     pub hashrate: f64,
     pub hashrate_5m: f64,
     pub accepted: u64,

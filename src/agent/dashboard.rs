@@ -184,6 +184,14 @@ fn render_dashboard(stdout: &mut Stdout, state: &DashboardState) -> io::Result<(
                 Print(format!("connected:      {}\n", snapshot.connected)),
                 Print(format!("pool:           {}\n", snapshot.pool)),
                 Print(format!("worker_name:    {}\n", snapshot.worker_name)),
+                Print(format!(
+                    "mode:           {}\n",
+                    snapshot
+                        .current_mode
+                        .as_ref()
+                        .map(|value| format!("{value:?}").to_lowercase())
+                        .unwrap_or_else(|| "custom_budget".to_string())
+                )),
                 Print(format!("hashrate:       {:.2} H/s\n", snapshot.hashrate)),
                 Print(format!("hashrate_5m:    {:.2} H/s\n", snapshot.hashrate_5m)),
                 Print(format!(

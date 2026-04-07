@@ -111,6 +111,7 @@ impl MinerRunner {
             connected: false,
             pool: self.config.pool.clone(),
             worker_name: self.config.login.worker_name().to_string(),
+            current_mode: None,
             hashrate: 0.0,
             hashrate_5m: 0.0,
             accepted: 0,

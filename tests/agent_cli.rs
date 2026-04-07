@@ -28,9 +28,11 @@ async fn agent_cli_supports_status_and_capabilities() -> Result<()> {
 
     let status_text = run_ctl_text(agent.socket_path(), &["status"]).await?;
     assert!(status_text.contains("state: stopped"));
+    assert!(status_text.contains("mode: conservative"));
     assert!(status_text.contains("worker_name: agent"));
 
     let status_json = run_ctl_json(agent.socket_path(), &["status"]).await?;
+    assert_eq!(status_json["current_mode"], "conservative");
     assert_eq!(status_json["current_budget"]["threads"], 1);
     assert_eq!(status_json["current_budget"]["cpu_percent"], 50);
     assert_eq!(status_json["current_budget"]["priority"], "background");
@@ -152,6 +154,7 @@ async fn agent_cli_lifecycle_and_budget_commands_work() -> Result<()> {
     assert_eq!(resumed["state"], "running");
 
     let mode = run_ctl_json(agent.socket_path(), &["set-mode", "conservative"]).await?;
+    assert_eq!(mode["current_mode"], "conservative");
     assert_eq!(mode["current_budget"]["threads"], 1);
     assert_eq!(mode["current_budget"]["cpu_percent"], 50);
 
@@ -168,6 +171,7 @@ async fn agent_cli_lifecycle_and_budget_commands_work() -> Result<()> {
         ],
     )
     .await?;
+    assert_eq!(budget["current_mode"], Value::Null);
     assert_eq!(budget["current_budget"]["threads"], 2);
     assert_eq!(budget["current_budget"]["cpu_percent"], 25);
 
