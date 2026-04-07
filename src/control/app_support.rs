@@ -3,6 +3,7 @@ use super::ControlConnection;
 use serde::{Deserialize, Serialize};
 use starcoin_types::genesis_config::ConsensusStrategy;
 use std::fmt::{Display, Formatter};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -159,6 +160,31 @@ pub(super) fn consensus_strategy_name(strategy: ConsensusStrategy) -> &'static s
     }
 }
 
+pub(super) fn write_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "state path must have a parent directory",
+        )
+    })?;
+    let tmp_name = format!(
+        ".{}.tmp.{}.{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("state"),
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |value| value.as_nanos())
+    );
+    let tmp_path = parent.join(tmp_name);
+    fs::write(&tmp_path, bytes)?;
+    fs::rename(&tmp_path, path).or_else(|rename_err| {
+        let _ = fs::remove_file(&tmp_path);
+        Err(rename_err)
+    })
+}
+
 pub(super) async fn wait_for_daemon_ready(
     child: &mut Child,
     socket_path: &Path,
@@ -187,5 +213,32 @@ pub(super) async fn wait_for_daemon_ready(
             return Err(AppError::DaemonStartTimeout(timeout));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_file_atomically;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(label: &str) -> PathBuf {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |value| value.as_nanos());
+        std::env::temp_dir().join(format!(
+            "stc-mint-agent-{label}-{}-{now}.json",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_contents() {
+        let path = temp_path("atomic-write");
+        write_file_atomically(&path, b"first").expect("write initial state");
+        write_file_atomically(&path, b"second").expect("replace state");
+        let bytes = std::fs::read(&path).expect("read state");
+        assert_eq!(bytes, b"second");
+        let _ = std::fs::remove_file(path);
     }
 }

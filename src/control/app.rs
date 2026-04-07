@@ -1,6 +1,6 @@
 use super::app_support::{
     consensus_strategy_name, default_max_threads, generate_worker_id,
-    resolve_binary_from_current_exe, wait_for_daemon_ready, PersistedState,
+    resolve_binary_from_current_exe, wait_for_daemon_ready, write_file_atomically, PersistedState,
 };
 pub(crate) use super::app_support::{AppError, DoctorReport, WalletConfigSummary};
 use super::config::{
@@ -385,7 +385,9 @@ impl MintApp {
             .stderr(Stdio::null())
             .spawn()
             .map_err(AppError::Spawn)?;
-        wait_for_daemon_ready(&mut child, &self.socket_path, self.timeout).await
+        wait_for_daemon_ready(&mut child, &self.socket_path, self.timeout).await?;
+        let _ = child; // Detach after readiness; the daemon continues as the long-lived process.
+        Ok(())
     }
 
     fn load_state_optional(&self) -> Result<Option<PersistedState>, AppError> {
@@ -409,7 +411,7 @@ impl MintApp {
             })?;
         }
         let encoded = serde_json::to_vec_pretty(state).map_err(AppError::StateParse)?;
-        std::fs::write(&self.state_path, encoded).map_err(|source| AppError::Io {
+        write_file_atomically(&self.state_path, &encoded).map_err(|source| AppError::Io {
             context: "write state file",
             source,
         })
