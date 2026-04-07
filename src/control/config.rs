@@ -3,7 +3,14 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use starcoin_types::genesis_config::ConsensusStrategy;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Duration;
+
+const DEFAULT_MAIN_POOL: &str = "main-stratum.starcoin.org:9888";
+const DEFAULT_MAIN_PASS: &str = "x";
+const DEFAULT_AGENT_NAME: &str = "stc-mint-agent";
+const DEFAULT_KEEPALIVE_INTERVAL_SECS: u64 = 30;
+const DEFAULT_STATUS_INTERVAL_SECS: u64 = 10;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -22,7 +29,7 @@ pub struct ControlPlaneArgs {
     pub pass: String,
     #[arg(
         long,
-        default_value = "stc-mint-agent",
+        default_value = DEFAULT_AGENT_NAME,
         help = "Agent string sent during login"
     )]
     pub agent: String,
@@ -35,9 +42,17 @@ pub struct ControlPlaneArgs {
         help = "Consensus strategy used to solve shares"
     )]
     pub consensus_strategy: CliConsensusStrategy,
-    #[arg(long, default_value_t = 30, help = "Keepalive interval in seconds")]
+    #[arg(
+        long,
+        default_value_t = DEFAULT_KEEPALIVE_INTERVAL_SECS,
+        help = "Keepalive interval in seconds"
+    )]
     pub keepalive_interval_secs: u64,
-    #[arg(long, default_value_t = 10, help = "Status log interval in seconds")]
+    #[arg(
+        long,
+        default_value_t = DEFAULT_STATUS_INTERVAL_SECS,
+        help = "Status log interval in seconds"
+    )]
     pub status_interval_secs: u64,
     #[arg(long, help = "Unix socket path for the local control plane")]
     pub socket: Option<PathBuf>,
@@ -122,6 +137,51 @@ pub fn default_socket_path() -> PathBuf {
         .join("stc-mint-agent.sock")
 }
 
+pub fn default_state_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("STC_MINT_AGENT_STATE_PATH") {
+        return PathBuf::from(path);
+    }
+    default_state_root().join("state.json")
+}
+
+pub fn default_main_pool() -> String {
+    std::env::var("STC_MINT_AGENT_POOL").unwrap_or_else(|_| DEFAULT_MAIN_POOL.to_string())
+}
+
+pub fn default_main_pass() -> String {
+    std::env::var("STC_MINT_AGENT_PASS").unwrap_or_else(|_| DEFAULT_MAIN_PASS.to_string())
+}
+
+pub fn default_agent_name() -> String {
+    std::env::var("STC_MINT_AGENT_AGENT").unwrap_or_else(|_| DEFAULT_AGENT_NAME.to_string())
+}
+
+pub fn default_keepalive_interval() -> Duration {
+    Duration::from_secs(
+        std::env::var("STC_MINT_AGENT_KEEPALIVE_INTERVAL_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_KEEPALIVE_INTERVAL_SECS),
+    )
+}
+
+pub fn default_status_interval() -> Duration {
+    Duration::from_secs(
+        std::env::var("STC_MINT_AGENT_STATUS_INTERVAL_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_STATUS_INTERVAL_SECS),
+    )
+}
+
+pub fn default_main_strategy() -> ConsensusStrategy {
+    std::env::var("STC_MINT_AGENT_STRATEGY")
+        .ok()
+        .and_then(|value| CliConsensusStrategy::from_str(&value).ok())
+        .map(ConsensusStrategy::from)
+        .unwrap_or(ConsensusStrategy::CryptoNight)
+}
+
 fn remove_stale_socket(path: &Path) -> Result<()> {
     if path.exists() {
         std::fs::remove_file(path)
@@ -152,6 +212,16 @@ fn default_private_runtime_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".stc-mint-agent"))
 }
 
+fn default_state_root() -> PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("state"))
+        })
+        .unwrap_or_else(|| PathBuf::from("/tmp").join(private_tmp_dir_name()))
+        .join("stc-mint-agent")
+}
+
 fn private_tmp_dir_name() -> String {
     #[cfg(unix)]
     {
@@ -170,6 +240,20 @@ impl From<CliConsensusStrategy> for ConsensusStrategy {
             CliConsensusStrategy::Argon => ConsensusStrategy::Argon,
             CliConsensusStrategy::Keccak => ConsensusStrategy::Keccak,
             CliConsensusStrategy::Cryptonight => ConsensusStrategy::CryptoNight,
+        }
+    }
+}
+
+impl FromStr for CliConsensusStrategy {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "dummy" => Ok(Self::Dummy),
+            "argon" => Ok(Self::Argon),
+            "keccak" => Ok(Self::Keccak),
+            "cryptonight" | "cnr" => Ok(Self::Cryptonight),
+            other => Err(format!("unsupported consensus strategy: {other}")),
         }
     }
 }

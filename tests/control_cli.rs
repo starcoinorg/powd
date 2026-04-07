@@ -45,6 +45,61 @@ async fn control_cli_supports_status_and_capabilities() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn control_cli_supports_wallet_setup_doctor_and_mcp_config() -> Result<()> {
+    let _guard = TEST_MUTEX.lock().await;
+
+    let state_path = support::process::temp_test_path("mint-state", "json");
+    let socket_path = support::process::temp_test_path("mint-socket", "sock");
+    let wallet = "0x33333333333333333333333333333333";
+
+    let setup = run_ctl_with_env_json(
+        &socket_path,
+        &[(
+            "STC_MINT_AGENT_STATE_PATH",
+            state_path.to_string_lossy().as_ref(),
+        )],
+        &["setup", "--wallet-address", wallet],
+    )
+    .await?;
+    assert_eq!(setup["wallet_address"], wallet);
+    assert!(setup["worker_id"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("agent"));
+    assert_eq!(setup["daemon_running"], false);
+
+    let doctor = run_ctl_with_env_json(
+        &socket_path,
+        &[(
+            "STC_MINT_AGENT_STATE_PATH",
+            state_path.to_string_lossy().as_ref(),
+        )],
+        &["doctor"],
+    )
+    .await?;
+    assert_eq!(doctor["wallet_configured"], true);
+    assert_eq!(doctor["wallet_address"], wallet);
+    assert_eq!(doctor["daemon_running"], false);
+
+    let mcp_config = run_ctl_with_env_json(
+        &socket_path,
+        &[(
+            "STC_MINT_AGENT_STATE_PATH",
+            state_path.to_string_lossy().as_ref(),
+        )],
+        &["mcp-config"],
+    )
+    .await?;
+    assert_eq!(
+        mcp_config["mcpServers"]["stc-mint"]["args"],
+        serde_json::json!(["mcp"])
+    );
+
+    let _ = std::fs::remove_file(state_path);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn control_cli_help_shows_mode_mapping_and_daemon_default_budget() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
@@ -244,9 +299,38 @@ async fn run_ctl(
     args: &[&str],
     json: bool,
 ) -> Result<std::process::Output> {
+    run_ctl_with_env(socket_path, &[], args, json).await
+}
+
+async fn run_ctl_with_env_json(
+    socket_path: &std::path::Path,
+    envs: &[(&str, &str)],
+    args: &[&str],
+) -> Result<Value> {
+    let output = run_ctl_with_env(socket_path, envs, args, true).await?;
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "ctl failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    let stdout = String::from_utf8(output.stdout).context("decode ctl stdout failed")?;
+    serde_json::from_str(stdout.trim()).context("parse ctl json output failed")
+}
+
+async fn run_ctl_with_env(
+    socket_path: &std::path::Path,
+    envs: &[(&str, &str)],
+    args: &[&str],
+    json: bool,
+) -> Result<std::process::Output> {
     let ctl_bin = resolve_stc_mint_agentctl_bin()?;
     let mut command = Command::new(ctl_bin);
     command.arg("--socket").arg(socket_path);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
     if json {
         command.arg("--json");
     }

@@ -1,8 +1,12 @@
-use super::{default_socket_path, ControlClientError, ControlConnection};
-use crate::{
-    BudgetMode, ControlPlaneMethods, EventsSinceResponse, MinerCapabilities, MinerEvent,
-    MinerSnapshot, Priority,
+use super::app::{AppError, MintApp};
+use super::cli_output::{
+    format_event, print_capabilities, print_doctor_report, print_events_since, print_json_or_text,
+    print_methods, print_status, print_wallet_summary,
 };
+use super::dashboard::run_dashboard;
+use super::mcp::run_mcp;
+use super::{default_socket_path, ControlClientError, ControlConnection};
+use crate::{BudgetMode, ControlPlaneMethods, MinerSnapshot, Priority};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::json;
 use std::path::PathBuf;
@@ -13,7 +17,7 @@ use std::time::Duration;
 #[command(
     name = "stc-mint-agentctl",
     about = "Control a local stc-mint-agent daemon over its Unix socket",
-    after_help = "Examples:\n  stc-mint-agentctl --json status\n  stc-mint-agentctl start\n  stc-mint-agentctl set-mode conservative\n  stc-mint-agentctl set-budget --threads 4 --cpu-percent 30 --priority background\n  stc-mint-agentctl --json events-since --since-seq 0"
+    after_help = "Examples:\n  stc-mint-agentctl setup --wallet-address 0xabc...\n  stc-mint-agentctl --json status\n  stc-mint-agentctl set-mode conservative\n  stc-mint-agentctl doctor\n  stc-mint-agentctl mcp-config"
 )]
 pub struct ControlCliArgs {
     #[arg(
@@ -37,19 +41,29 @@ pub struct ControlCliArgs {
 
 #[derive(Subcommand, Debug)]
 enum ControlCliCommand {
-    #[command(about = "Show the current miner snapshot")]
+    #[command(about = "Configure the payout wallet and create a stable worker id")]
+    Setup {
+        #[arg(long, help = "Payout wallet address")]
+        wallet_address: String,
+    },
+    #[command(about = "Set or replace the payout wallet while keeping the stable worker id")]
+    SetWallet {
+        #[arg(long, help = "New payout wallet address")]
+        wallet_address: String,
+    },
+    #[command(about = "Show the current miner snapshot or local stopped state")]
     Status,
     #[command(about = "Show runtime capabilities such as supported modes and limits")]
     Capabilities,
     #[command(about = "Show self-describing control-plane methods and parameter schema")]
     Methods,
-    #[command(about = "Start mining with the daemon's static pool/login configuration")]
+    #[command(about = "Start mining with the configured payout wallet")]
     Start,
     #[command(about = "Stop mining and disconnect from the pool")]
     Stop,
-    #[command(about = "Pause solving while keeping config and connection state")]
+    #[command(about = "Pause solving while keeping config and daemon alive")]
     Pause,
-    #[command(about = "Resume solving if the miner is paused")]
+    #[command(about = "Resume solving; starts mining if currently stopped")]
     Resume,
     #[command(
         about = "Apply a preset budget mode",
@@ -74,6 +88,14 @@ enum ControlCliCommand {
     },
     #[command(about = "Stream live events until interrupted")]
     Events,
+    #[command(about = "Check wallet setup, daemon reachability, and current runtime state")]
+    Doctor,
+    #[command(about = "Print an MCP server registration snippet for OpenClaw")]
+    McpConfig,
+    #[command(about = "Run a stdio MCP server for OpenClaw")]
+    Mcp,
+    #[command(about = "Open a local TUI dashboard for status and basic control")]
+    Dashboard,
 }
 
 #[derive(Args, Debug)]
@@ -141,63 +163,85 @@ impl CliError {
 async fn execute(args: ControlCliArgs) -> Result<(), CliError> {
     let socket_path = args.socket.clone().unwrap_or_else(default_socket_path);
     let timeout = Duration::from_secs(args.timeout_secs.max(1));
+    let app = MintApp::new(Some(socket_path.clone()), timeout);
     match args.command {
+        ControlCliCommand::Setup { wallet_address } => {
+            let summary = app
+                .setup(&wallet_address)
+                .await
+                .map_err(|err| map_app_error(err, args.json))?;
+            print_json_or_text(&summary, args.json, print_wallet_summary);
+        }
+        ControlCliCommand::SetWallet { wallet_address } => {
+            let summary = app
+                .update_wallet(&wallet_address)
+                .await
+                .map_err(|err| map_app_error(err, args.json))?;
+            print_json_or_text(&summary, args.json, print_wallet_summary);
+        }
         ControlCliCommand::Status => {
-            let mut client = connect(&socket_path, timeout, args.json).await?;
-            let snapshot: MinerSnapshot =
-                client_call(&mut client, "status.get", None, timeout, args.json).await?;
+            let snapshot = app
+                .status()
+                .await
+                .map_err(|err| map_app_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
         ControlCliCommand::Capabilities => {
-            let mut client = connect(&socket_path, timeout, args.json).await?;
-            let caps: MinerCapabilities = client
-                .capabilities(timeout)
+            let caps = app
+                .capabilities()
                 .await
-                .map_err(|err| map_client_error(err, args.json))?;
+                .map_err(|err| map_app_error(err, args.json))?;
             print_capabilities(caps, args.json);
         }
         ControlCliCommand::Methods => {
-            let mut client = connect(&socket_path, timeout, args.json).await?;
-            let methods: ControlPlaneMethods = client
-                .methods(timeout)
+            let methods = app
+                .methods()
                 .await
-                .map_err(|err| map_client_error(err, args.json))?;
-            print_methods(methods, args.json);
+                .map_err(|err| map_app_error(err, args.json))?;
+            if args.json {
+                println!(
+                    "{}",
+                    serde_json::to_string(&methods).expect("encode methods json")
+                );
+            } else {
+                let methods: ControlPlaneMethods =
+                    serde_json::from_value(methods).expect("decode methods json");
+                print_methods(methods, false);
+            }
         }
         ControlCliCommand::Start => {
-            let mut client = connect(&socket_path, timeout, args.json).await?;
-            let snapshot: MinerSnapshot =
-                client_call(&mut client, "miner.start", None, timeout, args.json).await?;
+            let snapshot = app
+                .start()
+                .await
+                .map_err(|err| map_app_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
         ControlCliCommand::Stop => {
-            let mut client = connect(&socket_path, timeout, args.json).await?;
-            let snapshot: MinerSnapshot =
-                client_call(&mut client, "miner.stop", None, timeout, args.json).await?;
+            let snapshot = app
+                .stop()
+                .await
+                .map_err(|err| map_app_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
         ControlCliCommand::Pause => {
-            let mut client = connect(&socket_path, timeout, args.json).await?;
-            let snapshot: MinerSnapshot =
-                client_call(&mut client, "miner.pause", None, timeout, args.json).await?;
+            let snapshot = app
+                .pause()
+                .await
+                .map_err(|err| map_app_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
         ControlCliCommand::Resume => {
-            let mut client = connect(&socket_path, timeout, args.json).await?;
-            let snapshot: MinerSnapshot =
-                client_call(&mut client, "miner.resume", None, timeout, args.json).await?;
+            let snapshot = app
+                .resume()
+                .await
+                .map_err(|err| map_app_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
         ControlCliCommand::SetMode { mode } => {
-            let mut client = connect(&socket_path, timeout, args.json).await?;
-            let snapshot: MinerSnapshot = client_call(
-                &mut client,
-                "budget.set_mode",
-                Some(json!({ "mode": map_budget_mode(mode) })),
-                timeout,
-                args.json,
-            )
-            .await?;
+            let snapshot = app
+                .set_mode(map_budget_mode(mode))
+                .await
+                .map_err(|err| map_app_error(err, args.json))?;
             print_status(snapshot, args.json);
         }
         ControlCliCommand::SetBudget(command) => {
@@ -227,11 +271,10 @@ async fn execute(args: ControlCliArgs) -> Result<(), CliError> {
             print_status(snapshot, args.json);
         }
         ControlCliCommand::EventsSince { since_seq } => {
-            let mut client = connect(&socket_path, timeout, args.json).await?;
-            let response: EventsSinceResponse = client
-                .events_since(since_seq, timeout)
+            let response = app
+                .events_since(since_seq)
                 .await
-                .map_err(|err| map_client_error(err, args.json))?;
+                .map_err(|err| map_app_error(err, args.json))?;
             print_events_since(response, args.json);
         }
         ControlCliCommand::Events => {
@@ -266,6 +309,32 @@ async fn execute(args: ControlCliArgs) -> Result<(), CliError> {
                     println!("{}", format_event(&event));
                 }
             }
+        }
+        ControlCliCommand::Doctor => {
+            let report = app
+                .doctor()
+                .await
+                .map_err(|err| map_app_error(err, args.json))?;
+            print_json_or_text(&report, args.json, print_doctor_report);
+        }
+        ControlCliCommand::McpConfig => {
+            let config = app
+                .mcp_config()
+                .map_err(|err| map_app_error(err, args.json))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&config).expect("encode mcp config")
+            );
+        }
+        ControlCliCommand::Mcp => {
+            run_mcp(app)
+                .await
+                .map_err(|err| CliError::new(4, format!("mcp server failed: {err}"), args.json))?;
+        }
+        ControlCliCommand::Dashboard => {
+            run_dashboard(app)
+                .await
+                .map_err(|err| CliError::new(4, format!("dashboard failed: {err}"), args.json))?;
         }
     }
     Ok(())
@@ -306,163 +375,27 @@ fn map_client_error(err: ControlClientError, json: bool) -> CliError {
     CliError::new(exit_code, err.to_string(), json)
 }
 
-fn print_status(snapshot: MinerSnapshot, json: bool) {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string(&snapshot).expect("encode snapshot json")
-        );
-        return;
-    }
-    println!("state: {}", serde_name(&snapshot.state));
-    println!("connected: {}", snapshot.connected);
-    println!("pool: {}", snapshot.pool);
-    println!("worker_name: {}", snapshot.worker_name);
-    println!("hashrate: {:.2} H/s", snapshot.hashrate);
-    println!("hashrate_5m: {:.2} H/s", snapshot.hashrate_5m);
-    println!("accepted: {}", snapshot.accepted);
-    println!("accepted_5m: {}", snapshot.accepted_5m);
-    println!("rejected: {}", snapshot.rejected);
-    println!("rejected_5m: {}", snapshot.rejected_5m);
-    println!("submitted: {}", snapshot.submitted);
-    println!("submitted_5m: {}", snapshot.submitted_5m);
-    println!("reject_rate_5m: {:.4}", snapshot.reject_rate_5m);
-    println!("reconnects: {}", snapshot.reconnects);
-    println!("uptime_secs: {}", snapshot.uptime_secs);
-    println!(
-        "budget: threads={} cpu_percent={} priority={}",
-        snapshot.current_budget.threads,
-        snapshot.current_budget.cpu_percent,
-        serde_name(&snapshot.current_budget.priority)
-    );
-    println!(
-        "last_error: {}",
-        snapshot.last_error.unwrap_or_else(|| "-".to_string())
-    );
-}
-
-fn print_capabilities(caps: MinerCapabilities, json: bool) {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string(&caps).expect("encode capabilities json")
-        );
-        return;
-    }
-    println!("max_threads: {}", caps.max_threads);
-    println!(
-        "supported_modes: {}",
-        caps.supported_modes
-            .iter()
-            .map(serde_name)
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    println!(
-        "supported_priorities: {}",
-        caps.supported_priorities
-            .iter()
-            .map(serde_name)
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    println!("supports_cpu_percent: {}", caps.supports_cpu_percent);
-    println!("supports_priority: {}", caps.supports_priority);
-}
-
-fn print_methods(methods: ControlPlaneMethods, json: bool) {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string(&methods).expect("encode methods json")
-        );
-        return;
-    }
-    println!("control_plane_version: {}", methods.control_plane_version);
-    println!("agent_version: {}", methods.agent_version);
-    for (name, method) in methods.methods {
-        println!("{name}:");
-        match method.params {
-            Some(params) => {
-                for (field, schema) in params.fields {
-                    let mut line = format!(
-                        "  param {}: {}{}",
-                        field,
-                        schema.type_name,
-                        if schema.optional { "?" } else { "" }
-                    );
-                    if !schema.enum_values.is_empty() {
-                        line.push_str(&format!(" enum={:?}", schema.enum_values));
-                    }
-                    println!("{line}");
-                }
-            }
-            None => println!("  params: none"),
-        }
-        println!("  result: {}", method.result);
-    }
-}
-
-fn print_events_since(response: EventsSinceResponse, json: bool) {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string(&response).expect("encode events since json")
-        );
-        return;
-    }
-    println!("next_seq: {}", response.next_seq);
-    for envelope in response.events {
-        println!("#{} {}", envelope.seq, format_event(&envelope.event));
-    }
-}
-
-fn format_event(event: &MinerEvent) -> String {
-    match event {
-        MinerEvent::Started { snapshot }
-        | MinerEvent::Paused { snapshot }
-        | MinerEvent::Resumed { snapshot }
-        | MinerEvent::Stopped { snapshot }
-        | MinerEvent::Reconnecting { snapshot }
-        | MinerEvent::BudgetChanged { snapshot }
-        | MinerEvent::ShareAccepted { snapshot } => format!(
-            "{} state={} connected={} accepted={} rejected={} hashrate={:.2}",
-            event_type(event),
-            serde_name(&snapshot.state),
-            snapshot.connected,
-            snapshot.accepted,
-            snapshot.rejected,
-            snapshot.hashrate
-        ),
-        MinerEvent::ShareRejected { snapshot, reason } => format!(
-            "{} state={} accepted={} rejected={} reason={}",
-            event_type(event),
-            serde_name(&snapshot.state),
-            snapshot.accepted,
-            snapshot.rejected,
-            reason
-        ),
-        MinerEvent::Error { snapshot, message } => format!(
-            "{} state={} message={}",
-            event_type(event),
-            serde_name(&snapshot.state),
-            message
-        ),
-    }
-}
-
-fn event_type(event: &MinerEvent) -> &'static str {
-    match event {
-        MinerEvent::Started { .. } => "started",
-        MinerEvent::Paused { .. } => "paused",
-        MinerEvent::Resumed { .. } => "resumed",
-        MinerEvent::Stopped { .. } => "stopped",
-        MinerEvent::Reconnecting { .. } => "reconnecting",
-        MinerEvent::BudgetChanged { .. } => "budget_changed",
-        MinerEvent::ShareAccepted { .. } => "share_accepted",
-        MinerEvent::ShareRejected { .. } => "share_rejected",
-        MinerEvent::Error { .. } => "error",
-    }
+fn map_app_error(err: AppError, json: bool) -> CliError {
+    let exit_code = match err {
+        AppError::NotConfigured => 4,
+        AppError::InvalidWallet(_) => 2,
+        AppError::Control(ref inner) => match inner {
+            ControlClientError::Connect { .. } => 3,
+            ControlClientError::Timeout { .. } => 5,
+            ControlClientError::Rpc(_)
+            | ControlClientError::Io(_)
+            | ControlClientError::Parse(_)
+            | ControlClientError::Protocol(_) => 4,
+        },
+        AppError::Io { .. }
+        | AppError::StateParse(_)
+        | AppError::Spawn(_)
+        | AppError::DaemonBinaryNotFound(_)
+        | AppError::DaemonExited
+        | AppError::DaemonStartTimeout(_)
+        | AppError::DaemonStopTimeout(_) => 4,
+    };
+    CliError::new(exit_code, err.to_string(), json)
 }
 
 fn map_budget_mode(value: CliBudgetMode) -> BudgetMode {
@@ -478,11 +411,4 @@ fn map_priority(value: CliPriority) -> Priority {
     match value {
         CliPriority::Background => Priority::Background,
     }
-}
-
-fn serde_name<T: serde::Serialize>(value: &T) -> String {
-    serde_json::to_string(value)
-        .expect("encode serde name")
-        .trim_matches('"')
-        .to_string()
 }

@@ -8,6 +8,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{unix::OwnedWriteHalf, UnixStream};
 use tokio::sync::{broadcast, Mutex};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Deserialize)]
 struct RpcRequest {
@@ -80,7 +81,11 @@ struct EventsSinceParams {
 type RpcResult<T> = std::result::Result<T, RpcFailure>;
 type ConnectionWriter = Arc<Mutex<OwnedWriteHalf>>;
 
-pub async fn serve_connection(stream: UnixStream, state: SharedState) -> Result<()> {
+pub async fn serve_connection(
+    stream: UnixStream,
+    state: SharedState,
+    shutdown: CancellationToken,
+) -> Result<()> {
     verify_peer_credentials(&stream)?;
     let (read_half, write_half) = stream.into_split();
     let writer: ConnectionWriter = Arc::new(Mutex::new(write_half));
@@ -99,7 +104,7 @@ pub async fn serve_connection(stream: UnixStream, state: SharedState) -> Result<
             }
         };
         let id = request.id.clone().unwrap_or(Value::Null);
-        match handle_request(request, &state).await {
+        match handle_request(request, &state, &shutdown).await {
             Ok(ResponseMode::Single(result)) => {
                 write_response(&writer, &success_response(id, result)).await?;
             }
@@ -166,7 +171,11 @@ enum ResponseMode {
     Subscribe(broadcast::Receiver<MinerEvent>),
 }
 
-async fn handle_request(request: RpcRequest, state: &SharedState) -> RpcResult<ResponseMode> {
+async fn handle_request(
+    request: RpcRequest,
+    state: &SharedState,
+    shutdown: &CancellationToken,
+) -> RpcResult<ResponseMode> {
     validate_request(&request)?;
     match request.method.as_str() {
         "miner.start" => Ok(ResponseMode::Single(serialize_result(
@@ -228,6 +237,12 @@ async fn handle_request(request: RpcRequest, state: &SharedState) -> RpcResult<R
             let params: EventsSinceParams = parse_params(request.params)?;
             Ok(ResponseMode::Single(serialize_result(
                 state.events_since(params.since_seq).await,
+            )?))
+        }
+        "daemon.shutdown" => {
+            shutdown.cancel();
+            Ok(ResponseMode::Single(serialize_result(
+                serde_json::json!({ "shutting_down": true }),
             )?))
         }
         "events.stream" => Ok(ResponseMode::Subscribe(state.subscribe_events())),

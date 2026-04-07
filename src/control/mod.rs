@@ -1,6 +1,11 @@
+mod app;
+mod app_support;
 mod cli;
+mod cli_output;
 mod client;
 mod config;
+mod dashboard;
+mod mcp;
 mod rpc;
 mod state;
 
@@ -35,8 +40,9 @@ pub async fn run(args: ControlPlaneArgs) -> Result<()> {
             accept = listener.accept() => {
                 let (stream, _) = accept?;
                 let state = state.clone();
+                let shutdown = shutdown.clone();
                 tokio::spawn(async move {
-                    if let Err(err) = serve_connection(stream, state).await {
+                    if let Err(err) = serve_connection(stream, state, shutdown).await {
                         starcoin_logger::prelude::warn!(target: "stc_mint_agent", "connection failed: {err}");
                     }
                 });
