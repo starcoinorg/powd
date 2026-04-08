@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::io;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Stdin, Stdout};
 
-const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
+const MCP_PROTOCOL_VERSION_LATEST: McpProtocolVersion = McpProtocolVersion::V20251125;
 
 pub async fn run_mcp(agent: WalletAgent) -> io::Result<()> {
     let stdin = tokio::io::stdin();
@@ -19,6 +19,7 @@ struct McpServer {
     agent: WalletAgent,
     reader: BufReader<Stdin>,
     writer: Stdout,
+    protocol_version: McpProtocolVersion,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +55,12 @@ struct CallToolParams {
 }
 
 #[derive(Deserialize)]
+struct InitializeParams {
+    #[serde(rename = "protocolVersion")]
+    protocol_version: String,
+}
+
+#[derive(Deserialize)]
 struct WalletArgs {
     wallet_address: String,
     #[serde(default)]
@@ -73,7 +80,8 @@ struct ToolListResult {
 #[derive(Serialize)]
 struct ToolSpec {
     name: &'static str,
-    title: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<&'static str>,
     description: &'static str,
     #[serde(rename = "inputSchema")]
     input_schema: Value,
@@ -105,12 +113,63 @@ struct ContentBlock {
     text: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum McpProtocolVersion {
+    V20251125,
+    V20250618,
+    V20250326,
+    V20241105,
+}
+
+impl McpProtocolVersion {
+    const SUPPORTED: [Self; 4] = [
+        Self::V20251125,
+        Self::V20250618,
+        Self::V20250326,
+        Self::V20241105,
+    ];
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::V20251125 => "2025-11-25",
+            Self::V20250618 => "2025-06-18",
+            Self::V20250326 => "2025-03-26",
+            Self::V20241105 => "2024-11-05",
+        }
+    }
+
+    fn supports_tool_title(self) -> bool {
+        matches!(self, Self::V20251125 | Self::V20250618)
+    }
+
+    fn negotiate(requested: &str) -> Self {
+        if let Some(exact) = Self::SUPPORTED
+            .iter()
+            .copied()
+            .find(|version| version.as_str() == requested)
+        {
+            return exact;
+        }
+
+        if is_iso_date(requested) {
+            return Self::SUPPORTED
+                .iter()
+                .copied()
+                .find(|version| version.as_str() <= requested)
+                .unwrap_or(Self::V20241105);
+        }
+
+        MCP_PROTOCOL_VERSION_LATEST
+    }
+}
+
 impl McpServer {
     fn new(agent: WalletAgent, stdin: Stdin, stdout: Stdout) -> Self {
         Self {
             agent,
             reader: BufReader::new(stdin),
             writer: stdout,
+            protocol_version: MCP_PROTOCOL_VERSION_LATEST,
         }
     }
 
@@ -158,28 +217,37 @@ impl McpServer {
     }
 
     async fn handle_request(
-        &self,
+        &mut self,
         id: Value,
         method: String,
         params: Option<Value>,
     ) -> McpResponse {
         match method.as_str() {
-            "initialize" => success(
-                id,
-                json!({
-                    "protocolVersion": MCP_PROTOCOL_VERSION,
-                    "capabilities": { "tools": {} },
-                    "serverInfo": {
-                        "name": "powctl",
-                        "version": env!("CARGO_PKG_VERSION"),
-                    }
-                }),
-            ),
+            "initialize" => {
+                let params: InitializeParams = match parse_params(params) {
+                    Ok(params) => params,
+                    Err(err) => return invalid_params(id, err),
+                };
+                self.protocol_version = McpProtocolVersion::negotiate(&params.protocol_version);
+                success(
+                    id,
+                    json!({
+                        "protocolVersion": self.protocol_version.as_str(),
+                        "capabilities": {
+                            "tools": { "listChanged": false }
+                        },
+                        "serverInfo": {
+                            "name": "powctl",
+                            "version": env!("CARGO_PKG_VERSION"),
+                        }
+                    }),
+                )
+            }
             "ping" => success(id, json!({})),
             "tools/list" => success(
                 id,
                 serde_json::to_value(ToolListResult {
-                    tools: tool_specs(),
+                    tools: tool_specs(self.protocol_version),
                 })
                 .expect("encode tools"),
             ),
@@ -285,86 +353,134 @@ fn parse_mode_args(arguments: Value) -> Result<BudgetMode, String> {
     Ok(args.mode)
 }
 
-fn tool_specs() -> Vec<ToolSpec> {
+fn tool_specs(protocol_version: McpProtocolVersion) -> Vec<ToolSpec> {
     vec![
         ToolSpec {
             name: "wallet_set",
-            title: "Set Wallet",
-            description: "Set, change, or replace the persisted payout wallet. Use this when the user wants to update the payout address or switch between main and halley. Confirm before calling because this changes future payout identity and may immediately reconfigure a running daemon.",
-            input_schema: wallet_schema(
-                "Payout wallet address. On first use this creates a stable worker name; later calls preserve it.",
+            title: tool_title(protocol_version, "Set Wallet"),
+            description: concat!(
+                "Use this when the user wants to set, change, or replace the persisted payout wallet, ",
+                "including requests like \"change my payout wallet\", \"switch to halley\", \"换钱包\", or \"改收款地址\". ",
+                "Do not use this when the user only wants to inspect the current wallet or ask about earnings. ",
+                "Prefer wallet_show for current identity questions and prefer wallet_reward for earnings or payout totals. ",
+                "Confirm before calling because this changes the persisted payout identity and may immediately reconfigure a running daemon."
             ),
+            input_schema: wallet_schema(),
             annotations: local_write_tool(true, true),
         },
         ToolSpec {
             name: "wallet_show",
-            title: "Show Wallet",
-            description: "Read the persisted wallet address, worker name, network, and derived login. Use this for questions about the current payout identity or current login string. Do not use it to change wallet settings.",
+            title: tool_title(protocol_version, "Show Wallet"),
+            description: concat!(
+                "Use this when the user asks which wallet is configured now, what the worker name is, ",
+                "what login string is in use, or says things like \"current wallet\", \"当前钱包\", or \"收款地址是什么\". ",
+                "Do not use this when the user wants to change the wallet or ask about rewards. ",
+                "Prefer wallet_set for changing payout identity and prefer wallet_reward for earnings, payouts, or pending reward totals."
+            ),
             input_schema: empty_object_schema(),
             annotations: read_only_tool(false),
         },
         ToolSpec {
             name: "wallet_reward",
-            title: "Wallet Rewards",
-            description: "Read earnings, payout totals, and pending reward totals from the configured pool-service HTTP API for the persisted wallet. Use this for earnings or reward questions, not for local miner runtime state. This is an external account query.",
+            title: tool_title(protocol_version, "Wallet Rewards"),
+            description: concat!(
+                "Use this when the user asks about earnings, rewards, pending payouts, or says things like ",
+                "\"how much have I earned\", \"收益\", or \"奖励\". ",
+                "Do not use this when the user wants to know whether mining is running right now or which mode is active. ",
+                "Prefer miner_status for live local runtime state and prefer wallet_show for current wallet identity. ",
+                "This is an external account query against the configured pool-service HTTP API."
+            ),
             input_schema: empty_object_schema(),
             annotations: read_only_tool(true),
         },
         ToolSpec {
             name: "miner_status",
-            title: "Miner Status",
-            description: "Read the current miner snapshot, including state, requested mode, effective budget, and auto hold state. Use this for status questions such as what is running now or show my mining status. Do not use it to change runtime behavior.",
+            title: tool_title(protocol_version, "Miner Status"),
+            description: concat!(
+                "Use this when the user asks what is running now, what mode is active, why the miner is held, ",
+                "or says things like \"show my mining status\", \"当前状态\", or \"现在在不在挖\". ",
+                "Do not use this when the user wants reward totals or wants to change runtime behavior. ",
+                "Prefer wallet_reward for earnings questions and prefer miner_set_mode, miner_pause, or miner_stop when the user wants to change behavior."
+            ),
             input_schema: empty_object_schema(),
             annotations: read_only_tool(false),
         },
         ToolSpec {
             name: "miner_start",
-            title: "Start Miner",
-            description: "Start mining with the configured wallet identity, or ensure the miner is running. Use this when the user explicitly asks to start mining or bring mining online. Confirm before calling if the user did not clearly ask to begin live mining, because it can start local CPU work and connect to the pool.",
+            title: tool_title(protocol_version, "Start Miner"),
+            description: concat!(
+                "Use this when the user explicitly wants mining to begin or come online, with wording like ",
+                "\"start mining\", \"begin mining\", \"启动挖矿\", or \"开始挖矿\". ",
+                "Do not use this when the user clearly means to continue after a temporary pause. ",
+                "Prefer miner_resume when the user says \"resume\", \"continue\", or \"恢复挖矿\" after a prior pause. ",
+                "Confirm before calling if the user did not clearly ask to begin live mining, because it can start local CPU work and connect to the pool."
+            ),
             input_schema: empty_object_schema(),
             annotations: runtime_write_tool(false),
         },
         ToolSpec {
             name: "miner_stop",
-            title: "Stop Miner",
-            description: "Stop mining and disconnect from the pool. Use this when the user explicitly asks to stop or shut down mining, not for a temporary pause. Confirm before calling because it halts current mining activity until the miner is started or resumed again.",
+            title: tool_title(protocol_version, "Stop Miner"),
+            description: concat!(
+                "Use this when the user explicitly wants mining turned off or shut down completely, with wording like ",
+                "\"stop mining completely\", \"turn mining off\", \"彻底停掉\", or \"停止挖矿\". ",
+                "Do not use this when the user only wants a temporary pause and expects to resume later. ",
+                "Prefer miner_pause for requests like \"pause for now\", \"先停一下\", or \"resume later\". ",
+                "Confirm before calling because it halts current mining activity until the miner is started or resumed again."
+            ),
             input_schema: empty_object_schema(),
             annotations: runtime_write_tool(true),
         },
         ToolSpec {
             name: "miner_pause",
-            title: "Pause Miner",
-            description: "Temporarily pause share solving without deleting wallet or daemon state. Use this for pause, hold, or temporarily stop requests when the user expects to resume later. Confirm before calling because it changes live miner behavior while preserving configuration.",
+            title: tool_title(protocol_version, "Pause Miner"),
+            description: concat!(
+                "Use this when the user wants a temporary pause without losing wallet or daemon state, with wording like ",
+                "\"pause mining\", \"resume later\", \"暂停\", or \"先停一下\". ",
+                "Do not use this when the user clearly wants mining shut down completely. ",
+                "Prefer miner_stop for full shutdown requests like \"turn mining off\" or \"彻底停掉\". ",
+                "Confirm before calling because it changes live miner behavior while preserving configuration."
+            ),
             input_schema: empty_object_schema(),
             annotations: runtime_write_tool(false),
         },
         ToolSpec {
             name: "miner_resume",
-            title: "Resume Miner",
-            description: "Resume share solving after a pause, or start the miner if it is currently stopped. Use this for resume or continue requests. Confirm before calling if the user did not clearly ask to change the live runtime.",
+            title: tool_title(protocol_version, "Resume Miner"),
+            description: concat!(
+                "Use this when the user wants to continue after a prior pause, with wording like ",
+                "\"resume mining\", \"continue\", \"恢复挖矿\", or \"继续挖\". ",
+                "Do not use this for fresh start requests where the user simply wants mining enabled from an off state. ",
+                "Prefer miner_start for \"start\" or \"begin mining\" phrasing without pause context. ",
+                "Confirm before calling if the user did not clearly ask to change the live runtime."
+            ),
             input_schema: empty_object_schema(),
             annotations: runtime_write_tool(false),
         },
         ToolSpec {
             name: "miner_set_mode",
-            title: "Set Miner Mode",
-            description: "Change the requested miner budget mode. Use this when the user asks to lower, raise, or switch mining intensity, such as idle, balanced, or aggressive. Confirm before calling because it changes ongoing CPU budget selection; use miner_status when the user only wants to inspect the current mode.",
-            input_schema: mode_schema(
-                "Mode to apply. auto lets the daemon adjust budget internally and never raises above the balanced ceiling by default.",
+            title: tool_title(protocol_version, "Set Miner Mode"),
+            description: concat!(
+                "Use this when the user wants mining to continue but at a different intensity, with wording like ",
+                "\"make mining less aggressive\", \"调低一点\", \"安静点\", \"省电点\", or \"更激进\". ",
+                "Do not use this when the user wants to stop mining or only inspect the current mode. ",
+                "Prefer miner_pause or miner_stop when the user wants mining to stop, and prefer miner_status when the user only wants to inspect the current mode. ",
+                "Confirm before calling because it changes ongoing CPU budget selection."
             ),
+            input_schema: mode_schema(),
             annotations: local_write_tool(false, false),
         },
     ]
 }
 
-fn wallet_schema(description: &str) -> Value {
+fn wallet_schema() -> Value {
     with_examples(
         object_schema_with_optional(
             &[(
                 "wallet_address",
                 json!({
                     "type": "string",
-                    "description": description,
+                    "description": "New payout wallet address to persist. This is the receiving wallet for future payouts, not the worker name or login string.",
                 }),
             )],
             &[(
@@ -372,7 +488,7 @@ fn wallet_schema(description: &str) -> Value {
                 json!({
                     "type": "string",
                     "enum": ["main", "halley"],
-                    "description": "Optional network profile. Omit to keep the current network, or default to main on first use.",
+                    "description": "Optional payout network profile. main = main network payouts. halley = halley test-network payouts. Omit to keep the current network, or default to main on first use.",
                 }),
             )],
         ),
@@ -388,17 +504,22 @@ fn wallet_schema(description: &str) -> Value {
     )
 }
 
-fn mode_schema(description: &str) -> Value {
+fn mode_schema() -> Value {
     with_examples(
         object_schema(&[(
             "mode",
             json!({
                 "type": "string",
                 "enum": ["auto", "conservative", "idle", "balanced", "aggressive"],
-                "description": description,
+                "description": "Requested mining intensity. auto = let the daemon choose a safe budget tier. conservative = lower sustained CPU usage. idle = minimal background work. balanced = normal everyday mining. aggressive = highest local CPU budget. Use this to tune intensity without stopping mining.",
             }),
         )]),
-        vec![json!({ "mode": "balanced" }), json!({ "mode": "auto" })],
+        vec![
+            json!({ "mode": "balanced" }),
+            json!({ "mode": "conservative" }),
+            json!({ "mode": "aggressive" }),
+            json!({ "mode": "auto" }),
+        ],
     )
 }
 
@@ -484,6 +605,21 @@ fn object_schema_with_optional<S: AsRef<str>, T: AsRef<str>>(
 fn parse_params<T: for<'de> Deserialize<'de>>(params: Option<Value>) -> Result<T, String> {
     serde_json::from_value(params.unwrap_or(Value::Object(Default::default())))
         .map_err(|err| format!("invalid params: {err}"))
+}
+
+fn is_iso_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit())
+}
+
+fn tool_title(protocol_version: McpProtocolVersion, title: &'static str) -> Option<&'static str> {
+    protocol_version.supports_tool_title().then_some(title)
 }
 
 fn success(id: Value, result: Value) -> McpResponse {

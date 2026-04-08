@@ -58,13 +58,17 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
             1,
             "initialize",
             json!({
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": "2025-11-25",
                 "capabilities": {},
                 "clientInfo": { "name": "test", "version": "0.1.0" }
             }),
         )
         .await?;
-    assert_eq!(initialize["result"]["protocolVersion"], "2024-11-05");
+    assert_eq!(initialize["result"]["protocolVersion"], "2025-11-25");
+    assert_eq!(
+        initialize["result"]["capabilities"]["tools"]["listChanged"],
+        false
+    );
 
     let tools = client.request(2, "tools/list", json!({})).await?;
     let names = tools["result"]["tools"]
@@ -244,7 +248,7 @@ async fn agent_mcp_tool_metadata_guides_confirmation_and_routing() -> Result<()>
             1,
             "initialize",
             json!({
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": "2025-11-25",
                 "capabilities": {},
                 "clientInfo": { "name": "test", "version": "0.1.0" }
             }),
@@ -278,6 +282,13 @@ async fn agent_mcp_tool_metadata_guides_confirmation_and_routing() -> Result<()>
     assert_eq!(wallet_set["annotations"]["readOnlyHint"], false);
     assert_eq!(wallet_set["annotations"]["destructiveHint"], true);
     assert_eq!(wallet_set["annotations"]["openWorldHint"], true);
+    let wallet_set_desc = description(wallet_set)?;
+    assert!(wallet_set_desc.contains("use this when"));
+    assert!(wallet_set_desc.contains("do not use this when"));
+    assert!(wallet_set_desc.contains("prefer wallet_show"));
+    assert!(wallet_set_desc.contains("prefer wallet_reward"));
+    assert!(wallet_set_desc.contains("换钱包"));
+    assert!(wallet_set_desc.contains("改收款地址"));
     assert_eq!(
         wallet_set["inputSchema"]["examples"][1],
         json!({
@@ -285,18 +296,41 @@ async fn agent_mcp_tool_metadata_guides_confirmation_and_routing() -> Result<()>
             "network": "halley"
         })
     );
+    assert!(
+        wallet_set["inputSchema"]["properties"]["wallet_address"]["description"]
+            .as_str()
+            .context("wallet_address description should be a string")?
+            .contains("not the worker name or login string")
+    );
+    let network_desc = wallet_set["inputSchema"]["properties"]["network"]["description"]
+        .as_str()
+        .context("network description should be a string")?;
+    assert!(network_desc.contains("main = main network payouts"));
+    assert!(network_desc.contains("halley = halley test-network payouts"));
 
     let wallet_reward = tool_named(&tool_map, "wallet_reward")?;
     assert_eq!(wallet_reward["annotations"]["readOnlyHint"], true);
     assert_eq!(wallet_reward["annotations"]["openWorldHint"], true);
+    let wallet_reward_desc = description(wallet_reward)?;
+    assert!(wallet_reward_desc.contains("earnings"));
+    assert!(wallet_reward_desc.contains("收益"));
+    assert!(wallet_reward_desc.contains("prefer miner_status"));
 
     let miner_status = tool_named(&tool_map, "miner_status")?;
     assert_eq!(miner_status["annotations"]["readOnlyHint"], true);
     assert_eq!(miner_status["annotations"]["destructiveHint"], false);
+    let miner_status_desc = description(miner_status)?;
+    assert!(miner_status_desc.contains("show my mining status"));
+    assert!(miner_status_desc.contains("当前状态"));
+    assert!(miner_status_desc.contains("prefer wallet_reward"));
 
     let miner_stop = tool_named(&tool_map, "miner_stop")?;
     assert_eq!(miner_stop["annotations"]["destructiveHint"], true);
     assert_eq!(miner_stop["annotations"]["openWorldHint"], true);
+    let miner_stop_desc = description(miner_stop)?;
+    assert!(miner_stop_desc.contains("do not use this when"));
+    assert!(miner_stop_desc.contains("prefer miner_pause"));
+    assert!(miner_stop_desc.contains("彻底停掉"));
 
     let miner_set_mode = tool_named(&tool_map, "miner_set_mode")?;
     assert_eq!(miner_set_mode["annotations"]["readOnlyHint"], false);
@@ -306,56 +340,76 @@ async fn agent_mcp_tool_metadata_guides_confirmation_and_routing() -> Result<()>
         json!({ "mode": "balanced" })
     );
     assert_eq!(
-        miner_set_mode["inputSchema"]["examples"][1],
+        miner_set_mode["inputSchema"]["examples"][3],
         json!({ "mode": "auto" })
     );
+    let mode_desc = miner_set_mode["inputSchema"]["properties"]["mode"]["description"]
+        .as_str()
+        .context("mode description should be a string")?;
+    assert!(mode_desc.contains("auto = let the daemon choose"));
+    assert!(mode_desc.contains("balanced = normal everyday mining"));
+    assert!(mode_desc.contains("aggressive = highest local CPU budget"));
+    let miner_set_mode_desc = description(miner_set_mode)?;
+    assert!(miner_set_mode_desc.contains("prefer miner_pause or miner_stop"));
+    assert!(miner_set_mode_desc.contains("prefer miner_status"));
+    assert!(miner_set_mode_desc.contains("调低一点"));
+    assert!(miner_set_mode_desc.contains("更激进"));
 
     let routing_cases = [
         (
             "change my payout wallet to 0x111... on halley",
             "wallet_set",
             &[
-                "change",
-                "replace",
-                "payout wallet",
+                "use this when",
+                "change my payout wallet",
                 "confirm before calling",
             ][..],
         ),
         (
+            "换钱包到 halley",
+            "wallet_set",
+            &["换钱包", "改收款地址", "prefer wallet_show"][..],
+        ),
+        (
             "how much have I earned so far",
             "wallet_reward",
-            &["earnings", "reward", "external account query"][..],
+            &["earnings", "reward", "prefer miner_status"][..],
+        ),
+        (
+            "收益怎么样",
+            "wallet_reward",
+            &["收益", "奖励", "external account query"][..],
         ),
         (
             "show my mining status",
             "miner_status",
             &[
-                "what is running now",
+                "use this when",
                 "show my mining status",
-                "do not use it to change",
+                "prefer wallet_reward",
             ][..],
         ),
         (
             "pause mining for now and resume later",
             "miner_pause",
-            &["temporarily", "pause", "resume later"][..],
+            &["pause mining", "resume later", "prefer miner_stop"][..],
         ),
         (
             "stop mining completely",
             "miner_stop",
             &[
-                "stop",
-                "not for a temporary pause",
-                "halts current mining activity",
+                "turn mining off",
+                "do not use this when",
+                "prefer miner_pause",
             ][..],
         ),
         (
             "make mining less aggressive",
             "miner_set_mode",
             &[
-                "lower",
-                "raise",
-                "switch mining intensity",
+                "different intensity",
+                "调低一点",
+                "更激进",
                 "confirm before calling",
             ][..],
         ),
@@ -375,6 +429,90 @@ async fn agent_mcp_tool_metadata_guides_confirmation_and_routing() -> Result<()>
 
     let _ = child.kill().await;
     let _ = std::fs::remove_file(state_path);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_mcp_negotiates_protocol_versions_and_hides_latest_only_fields() -> Result<()> {
+    let _guard = TEST_MUTEX.lock().await;
+
+    let cases = [
+        ("2025-11-25", "2025-11-25", true),
+        ("2025-06-18", "2025-06-18", true),
+        ("2025-03-26", "2025-03-26", false),
+        ("2024-11-05", "2024-11-05", false),
+        ("2026-01-01", "2025-11-25", true),
+        ("2025-05-01", "2025-03-26", false),
+    ];
+
+    for (requested, expected, expect_title) in cases {
+        let state_path = temp_test_path("mcp-proto-state", "json");
+        let socket_path = temp_test_path("mcp-proto-socket", "sock");
+        let reward_api = FakeRewardApi::start_json(json!({
+            "account": "0x77777777777777777777777777777777",
+            "generated_at_millis": 123,
+            "window_secs": 300,
+            "online_threshold_secs": 120,
+            "summary": {
+                "active_workers": 0,
+                "total_workers": 0,
+                "hashrate_1m": 0.0,
+                "hashrate_window": 0.0,
+                "observed_hashrate_1m": 0.0,
+                "observed_hashrate_window": 0.0,
+                "assigned_hashrate_floor": 0.0,
+                "accepted_shares_1m": 0,
+                "accepted_shares_window": 0,
+                "miner_valid_shares_1m": 0,
+                "miner_valid_shares_window": 0,
+                "pending_submits": 0,
+                "confirmed_blocks_24h": 0,
+                "orphaned_blocks_24h": 0,
+                "confirmed_total": "0",
+                "paid_total": "0",
+                "confirmed_through_height": 1,
+                "estimated_pending_total": null,
+                "last_share_at_millis": null
+            },
+            "workers": []
+        }))
+        .await?;
+        let reward_api_base = reward_api.base_url();
+        let mut child = spawn_mcp(&state_path, &socket_path, &reward_api_base).await?;
+        let stdin = child.stdin.take().context("take mcp stdin failed")?;
+        let stdout = child.stdout.take().context("take mcp stdout failed")?;
+        let mut client = McpClient::new(stdin, stdout);
+
+        let initialize = client
+            .request(
+                1,
+                "initialize",
+                json!({
+                    "protocolVersion": requested,
+                    "capabilities": {},
+                    "clientInfo": { "name": "test", "version": "0.1.0" }
+                }),
+            )
+            .await?;
+        assert_eq!(initialize["result"]["protocolVersion"], expected);
+
+        let tools = client.request(2, "tools/list", json!({})).await?;
+        let wallet_set = tools["result"]["tools"]
+            .as_array()
+            .context("tools list should be an array")?
+            .iter()
+            .find(|tool| tool["name"] == "wallet_set")
+            .context("wallet_set should be present")?;
+        assert_eq!(
+            wallet_set.get("title").is_some(),
+            expect_title,
+            "requested protocol {requested} should gate title fields",
+        );
+
+        let _ = child.kill().await;
+        let _ = std::fs::remove_file(state_path);
+    }
+
     Ok(())
 }
 
@@ -462,4 +600,11 @@ fn tool_named<'a>(tools: &'a BTreeMap<String, Value>, name: &str) -> Result<&'a 
     tools
         .get(name)
         .with_context(|| format!("missing tool metadata for {name}"))
+}
+
+fn description(tool: &Value) -> Result<String> {
+    Ok(tool["description"]
+        .as_str()
+        .context("tool description should be a string")?
+        .to_ascii_lowercase())
 }

@@ -59,4 +59,79 @@ printf '%s\n' "$saved_json" | jq -e --arg powctl "$powctl_bin" '
 list_json="$(openclaw mcp list --json)"
 printf '%s\n' "$list_json" | jq -e 'has("powd")' >/dev/null
 
+workspace="$(openclaw-bootstrap)"
+materialize_workspace="$POWD_OPENCLAW_ROOT/materialize-workspace"
+saved_json_compact="$(printf '%s\n' "$saved_json" | jq -c .)"
+materialize_test="$POWD_OPENCLAW_ROOT/powd-materialize.test.ts"
+cat >"$materialize_test" <<EOF
+import fs from "node:fs/promises";
+import { afterAll, expect, it } from "vitest";
+
+let runtime;
+
+afterAll(async () => {
+  await runtime?.dispose();
+});
+
+it("materializes powd MCP tools with routing metadata intact", async () => {
+  const { createBundleMcpToolRuntime } = await import(
+    \`\${process.env.OPENCLAW_WORKSPACE_ROOT}/src/agents/pi-bundle-mcp-tools.ts\`,
+  );
+  const workspaceDir = process.env.OPENCLAW_MATERIALIZE_WORKSPACE;
+  const server = JSON.parse(process.env.SERVER_JSON);
+  await fs.mkdir(workspaceDir, { recursive: true });
+
+  runtime = await createBundleMcpToolRuntime({
+    workspaceDir,
+    cfg: {
+      mcp: {
+        servers: {
+          powd: server,
+        },
+      },
+    },
+  });
+
+  expect(runtime.tools).toHaveLength(9);
+
+  const toolMap = new Map(runtime.tools.map((tool) => [tool.name, tool]));
+  const walletSet = toolMap.get("powd__wallet_set");
+  const walletReward = toolMap.get("powd__wallet_reward");
+  const minerStop = toolMap.get("powd__miner_stop");
+  const minerSetMode = toolMap.get("powd__miner_set_mode");
+
+  expect(walletSet).toBeDefined();
+  expect(walletReward).toBeDefined();
+  expect(minerStop).toBeDefined();
+  expect(minerSetMode).toBeDefined();
+
+  expect(walletSet.label === "wallet_set" || walletSet.label === "Set Wallet").toBe(true);
+  expect(walletSet.description).toContain("Prefer wallet_show");
+  expect(walletSet.description).toContain("换钱包");
+  expect(walletSet.parameters.properties.wallet_address.description).toContain(
+    "not the worker name or login string",
+  );
+
+  expect(walletReward.description).toContain("earnings");
+  expect(walletReward.description).toContain("收益");
+  expect(walletReward.description).toContain("Prefer miner_status");
+
+  expect(minerStop.description).toContain("Prefer miner_pause");
+  expect(minerStop.description).toContain("turn mining off");
+
+  expect(minerSetMode.description).toContain("Prefer miner_pause or miner_stop");
+  expect(minerSetMode.parameters.properties.mode.description).toContain("auto =");
+  expect(minerSetMode.parameters.properties.mode.description).toContain("aggressive =");
+});
+EOF
+
+(
+  cd "$workspace"
+  SERVER_JSON="$saved_json_compact" \
+  OPENCLAW_WORKSPACE_ROOT="$workspace" \
+  OPENCLAW_MATERIALIZE_WORKSPACE="$materialize_workspace" \
+  node scripts/run-vitest.mjs run --config vitest.unit.config.ts "$materialize_test" >/dev/null
+)
+rm -f "$materialize_test"
+
 printf 'OpenClaw MCP smoke passed\n'
