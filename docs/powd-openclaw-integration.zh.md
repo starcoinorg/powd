@@ -84,6 +84,13 @@ MCP bridge 只暴露公开业务工具：
 - `miner_resume`
 - `miner_set_mode`
 
+每个 tool definition 还应该携带宿主侧可直接消费的 routing hints：
+
+- 明确的 title 和更完整的 description，帮助自然语言路由
+- 对带参数 tool 提供 JSON Schema `examples`
+- 区分 read-only 与 mutating 的 annotations，便于宿主执行 policy
+- 对 `wallet_set` 和 `miner_stop` 提供 destructive hints，这样宿主可以在修改 payout identity 或停止 live mining 之前要求确认
+
 它刻意把账户收益和 miner 运行状态分开：
 
 - `wallet_reward` 是对 pool-service 的外部账户查询

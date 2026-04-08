@@ -73,8 +73,20 @@ struct ToolListResult {
 #[derive(Serialize)]
 struct ToolSpec {
     name: &'static str,
+    title: &'static str,
     description: &'static str,
+    #[serde(rename = "inputSchema")]
     input_schema: Value,
+    annotations: ToolAnnotations,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolAnnotations {
+    read_only_hint: bool,
+    destructive_hint: bool,
+    idempotent_hint: bool,
+    open_world_hint: bool,
 }
 
 #[derive(Serialize)]
@@ -277,89 +289,156 @@ fn tool_specs() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
             name: "wallet_set",
-            description: "Persist or replace the payout wallet. First use creates a stable worker name. Later updates keep the same worker name and optionally switch network.",
+            title: "Set Wallet",
+            description: "Set, change, or replace the persisted payout wallet. Use this when the user wants to update the payout address or switch between main and halley. Confirm before calling because this changes future payout identity and may immediately reconfigure a running daemon.",
             input_schema: wallet_schema(
                 "Payout wallet address. On first use this creates a stable worker name; later calls preserve it.",
             ),
+            annotations: local_write_tool(true, true),
         },
         ToolSpec {
             name: "wallet_show",
-            description: "Show the persisted wallet address, worker name, network, and derived login.",
+            title: "Show Wallet",
+            description: "Read the persisted wallet address, worker name, network, and derived login. Use this for questions about the current payout identity or current login string. Do not use it to change wallet settings.",
             input_schema: empty_object_schema(),
+            annotations: read_only_tool(false),
         },
         ToolSpec {
             name: "wallet_reward",
-            description: "Query external account reward totals from the configured pool-service HTTP API. This is separate from local miner runtime status.",
+            title: "Wallet Rewards",
+            description: "Read earnings, payout totals, and pending reward totals from the configured pool-service HTTP API for the persisted wallet. Use this for earnings or reward questions, not for local miner runtime state. This is an external account query.",
             input_schema: empty_object_schema(),
+            annotations: read_only_tool(true),
         },
         ToolSpec {
             name: "miner_status",
-            description: "Read the current miner snapshot, including requested mode, effective budget, and auto state.",
+            title: "Miner Status",
+            description: "Read the current miner snapshot, including state, requested mode, effective budget, and auto hold state. Use this for status questions such as what is running now or show my mining status. Do not use it to change runtime behavior.",
             input_schema: empty_object_schema(),
+            annotations: read_only_tool(false),
         },
         ToolSpec {
             name: "miner_start",
-            description: "Start mining with the configured wallet identity.",
+            title: "Start Miner",
+            description: "Start mining with the configured wallet identity, or ensure the miner is running. Use this when the user explicitly asks to start mining or bring mining online. Confirm before calling if the user did not clearly ask to begin live mining, because it can start local CPU work and connect to the pool.",
             input_schema: empty_object_schema(),
+            annotations: runtime_write_tool(false),
         },
         ToolSpec {
             name: "miner_stop",
-            description: "Stop mining and disconnect from the pool.",
+            title: "Stop Miner",
+            description: "Stop mining and disconnect from the pool. Use this when the user explicitly asks to stop or shut down mining, not for a temporary pause. Confirm before calling because it halts current mining activity until the miner is started or resumed again.",
             input_schema: empty_object_schema(),
+            annotations: runtime_write_tool(true),
         },
         ToolSpec {
             name: "miner_pause",
-            description: "Pause solving without deleting wallet or daemon state. In auto mode this holds automatic budgeting until resume or start.",
+            title: "Pause Miner",
+            description: "Temporarily pause share solving without deleting wallet or daemon state. Use this for pause, hold, or temporarily stop requests when the user expects to resume later. Confirm before calling because it changes live miner behavior while preserving configuration.",
             input_schema: empty_object_schema(),
+            annotations: runtime_write_tool(false),
         },
         ToolSpec {
             name: "miner_resume",
-            description: "Resume solving. If the miner is stopped, this starts it. In auto mode this clears the hold state.",
+            title: "Resume Miner",
+            description: "Resume share solving after a pause, or start the miner if it is currently stopped. Use this for resume or continue requests. Confirm before calling if the user did not clearly ask to change the live runtime.",
             input_schema: empty_object_schema(),
+            annotations: runtime_write_tool(false),
         },
         ToolSpec {
             name: "miner_set_mode",
-            description: "Set the miner mode. auto lets the daemon adjust budget from system CPU and memory usage; conservative, idle, balanced, and aggressive are fixed presets.",
+            title: "Set Miner Mode",
+            description: "Change the requested miner budget mode. Use this when the user asks to lower, raise, or switch mining intensity, such as idle, balanced, or aggressive. Confirm before calling because it changes ongoing CPU budget selection; use miner_status when the user only wants to inspect the current mode.",
             input_schema: mode_schema(
                 "Mode to apply. auto lets the daemon adjust budget internally and never raises above the balanced ceiling by default.",
             ),
+            annotations: local_write_tool(false, false),
         },
     ]
 }
 
 fn wallet_schema(description: &str) -> Value {
-    object_schema_with_optional(
-        &[(
-            "wallet_address",
+    with_examples(
+        object_schema_with_optional(
+            &[(
+                "wallet_address",
+                json!({
+                    "type": "string",
+                    "description": description,
+                }),
+            )],
+            &[(
+                "network",
+                json!({
+                    "type": "string",
+                    "enum": ["main", "halley"],
+                    "description": "Optional network profile. Omit to keep the current network, or default to main on first use.",
+                }),
+            )],
+        ),
+        vec![
             json!({
-                "type": "string",
-                "description": description,
+                "wallet_address": "0x11111111111111111111111111111111"
             }),
-        )],
-        &[(
-            "network",
             json!({
-                "type": "string",
-                "enum": ["main", "halley"],
-                "description": "Optional network profile. Omit to keep the current network, or default to main on first use.",
+                "wallet_address": "0x11111111111111111111111111111111",
+                "network": "halley"
             }),
-        )],
+        ],
     )
 }
 
 fn mode_schema(description: &str) -> Value {
-    object_schema(&[(
-        "mode",
-        json!({
-            "type": "string",
-            "enum": ["auto", "conservative", "idle", "balanced", "aggressive"],
-            "description": description,
-        }),
-    )])
+    with_examples(
+        object_schema(&[(
+            "mode",
+            json!({
+                "type": "string",
+                "enum": ["auto", "conservative", "idle", "balanced", "aggressive"],
+                "description": description,
+            }),
+        )]),
+        vec![json!({ "mode": "balanced" }), json!({ "mode": "auto" })],
+    )
 }
 
 fn empty_object_schema() -> Value {
-    object_schema::<&str>(&[])
+    with_examples(object_schema::<&str>(&[]), vec![json!({})])
+}
+
+fn with_examples(mut schema: Value, examples: Vec<Value>) -> Value {
+    schema
+        .as_object_mut()
+        .expect("object schema")
+        .insert("examples".to_string(), Value::Array(examples));
+    schema
+}
+
+fn read_only_tool(open_world_hint: bool) -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: true,
+        destructive_hint: false,
+        idempotent_hint: true,
+        open_world_hint,
+    }
+}
+
+fn local_write_tool(destructive_hint: bool, open_world_hint: bool) -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: false,
+        destructive_hint,
+        idempotent_hint: false,
+        open_world_hint,
+    }
+}
+
+fn runtime_write_tool(destructive_hint: bool) -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: false,
+        destructive_hint,
+        idempotent_hint: false,
+        open_world_hint: true,
+    }
 }
 
 fn object_schema<S: AsRef<str>>(fields: &[(S, Value)]) -> Value {

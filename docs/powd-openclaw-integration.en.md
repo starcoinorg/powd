@@ -84,6 +84,13 @@ The MCP bridge exposes only the public business tools:
 - `miner_resume`
 - `miner_set_mode`
 
+Each tool definition is expected to carry host-facing routing hints:
+
+- explicit titles and longer descriptions for natural-language routing
+- JSON Schema `examples` for argument-bearing tools
+- read-only vs mutating annotations for host policy
+- destructive hints on `wallet_set` and `miner_stop`, so hosts can require confirmation before changing payout identity or halting live mining
+
 It intentionally keeps account rewards separate from miner runtime state:
 
 - `wallet_reward` is an external pool-service account query
