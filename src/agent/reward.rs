@@ -3,6 +3,7 @@ use crate::MintNetwork;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::io;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -26,6 +27,7 @@ pub(crate) struct WalletRewardSnapshot {
 
 #[derive(Debug)]
 pub(crate) enum RewardError {
+    Tls(ureq::native_tls::Error),
     Http(ureq::Error),
     Read(io::Error),
     Decode(serde_json::Error),
@@ -36,6 +38,7 @@ pub(crate) enum RewardError {
 impl Display for RewardError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Tls(err) => write!(f, "configure reward TLS connector failed: {err}"),
             Self::Http(err) => write!(f, "reward query failed: {err}"),
             Self::Read(err) => write!(f, "read reward response failed: {err}"),
             Self::Decode(err) => write!(f, "decode reward response failed: {err}"),
@@ -82,7 +85,11 @@ fn fetch_wallet_reward_blocking(
         "{}/v1/mining/dashboard/{}?window_secs=300",
         base_url, profile.wallet_address
     );
-    let agent = ureq::AgentBuilder::new().timeout(timeout).build();
+    let tls_connector = Arc::new(ureq::native_tls::TlsConnector::new().map_err(RewardError::Tls)?);
+    let agent = ureq::AgentBuilder::new()
+        .timeout(timeout)
+        .tls_connector(tls_connector)
+        .build();
     let response = agent.get(&url).call().map_err(RewardError::Http)?;
     let body = response.into_string().map_err(RewardError::Read)?;
     let payload: MiningDashboardResponse =
@@ -144,6 +151,8 @@ pub(crate) fn format_stc_from_nano(raw_value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::format_stc_from_nano;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     #[test]
     fn format_stc_rounds_to_tenths() {
@@ -154,5 +163,22 @@ mod tests {
         assert_eq!(format_stc_from_nano("1500000000"), "1.5 STC");
         assert_eq!(format_stc_from_nano("-50000000"), "-0.1 STC");
         assert_eq!(format_stc_from_nano("bogus"), "bogus (raw)");
+    }
+
+    #[test]
+    fn https_backend_is_enabled() {
+        let tls_connector = Arc::new(ureq::native_tls::TlsConnector::new().unwrap());
+        let agent = ureq::AgentBuilder::new()
+            .timeout(Duration::from_millis(100))
+            .tls_connector(tls_connector)
+            .build();
+        let err = agent
+            .get("https://127.0.0.1:9")
+            .call()
+            .expect_err("closed local port should not succeed");
+        assert!(
+            !matches!(err.kind(), ureq::ErrorKind::UnknownScheme),
+            "HTTPS support is not configured; got {err}"
+        );
     }
 }
