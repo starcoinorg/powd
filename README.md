@@ -7,7 +7,7 @@ The product is not "a miner with some shell commands on top". The intended shape
 - an agent uses `powd` as a local capability
 - MCP is the supported host boundary
 - natural language sits above that capability surface
-- `powctl` remains the control plane, not the product story
+- `powd` is the public control plane, while daemon mode stays internal
 
 ## Agent-first model
 
@@ -28,11 +28,10 @@ That means the core UX is not "memorize commands". The core UX is "let an agent 
 The supported split is:
 
 - `powd`
-  - the only daemon
-  - owns miner runtime, local state, event history, and automatic budgeting
-- `powctl`
   - the only public front-end
   - owns persisted user profile, CLI/TUI, and the MCP bridge
+- hidden `powd` daemon mode
+  - owns miner runtime, local state, event history, and automatic budgeting
 - OpenClaw or another MCP host
   - discovers `powd` tools
   - routes natural language into those tools
@@ -46,7 +45,7 @@ This keeps the long-lived runtime in deterministic code while letting the host l
 
 The MCP surface intentionally exposes a small business tool set around wallet identity, runtime control, reward lookup, and mining mode. That is the stable layer an agent can learn and automate against. The daemon's private socket protocol, raw budget controls, and internal event plumbing stay behind that boundary.
 
-For OpenClaw, the integration model is standard local MCP over `stdio`. `powctl` provides the registration shape and launches the bridge; the host only needs to register it and call tools.
+For OpenClaw, the integration model is standard local MCP over `stdio`. `powd` provides the registration shape, launches the bridge, and self-bootstraps its hidden daemon mode when runtime work is needed. The host only needs to register `powd` and call tools.
 
 ## Why this matters
 

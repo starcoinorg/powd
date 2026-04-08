@@ -1,8 +1,9 @@
 use super::config::{build_miner_config, default_socket_path, default_state_path, MintProfile};
 use super::reward::{fetch_wallet_reward, WalletRewardSnapshot};
 use super::wallet_support::{
-    profile_with_defaults, resolve_binary_from_current_exe, wait_for_daemon_ready,
-    write_file_atomically, DoctorReport, WalletAgentError, WalletConfigSummary,
+    current_executable_path, profile_with_defaults, resolve_binary_from_current_exe,
+    wait_for_daemon_ready, write_file_atomically, DoctorReport, WalletAgentError,
+    WalletConfigSummary,
 };
 use super::{AgentClientError, AgentConnection};
 use crate::{
@@ -239,7 +240,7 @@ impl WalletAgent {
     }
 
     pub fn mcp_config(&self, server_only: bool) -> Result<Value, WalletAgentError> {
-        let command = resolve_binary_from_current_exe("powctl")?
+        let command = resolve_binary_from_current_exe("powd")?
             .display()
             .to_string();
         let server = json!({
@@ -362,8 +363,9 @@ impl WalletAgent {
     }
 
     async fn spawn_daemon(&self) -> Result<(), WalletAgentError> {
-        let bin = resolve_binary_from_current_exe("powd")?;
+        let bin = current_executable_path()?;
         let mut child = Command::new(bin)
+            .arg("__daemon")
             .arg("--socket")
             .arg(&self.socket_path)
             .stdout(Stdio::null())
@@ -474,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn mcp_config_points_to_powctl_mcp_command() {
+    fn mcp_config_points_to_powd_mcp_command() {
         let socket_path = temp_path("mcp-config-socket", "sock");
         let state_path = temp_path("mcp-config-state", "json");
         let agent = WalletAgent::with_paths(socket_path, state_path, Duration::from_secs(1));

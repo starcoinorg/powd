@@ -11,7 +11,7 @@ use agent_process::AgentProcess;
 use anyhow::{Context, Result};
 use fake_pool::SilentKeepalivePool;
 use fake_reward_api::FakeRewardApi;
-use process::{resolve_powctl_bin, resolve_powd_bin, TEST_MUTEX};
+use process::{resolve_powd_bin, TEST_MUTEX};
 use serde_json::Value;
 use std::process::Command;
 
@@ -239,12 +239,12 @@ async fn agent_cli_wallet_reward_reads_external_account_totals() -> Result<()> {
 async fn agent_cli_help_shows_wallet_miner_doctor_and_mcp_mode() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
-    let ctl_bin = resolve_powctl_bin()?;
+    let ctl_bin = resolve_powd_bin()?;
 
     let top_help = Command::new(&ctl_bin)
         .arg("--help")
         .output()
-        .context("run powctl --help failed")?;
+        .context("run powd --help failed")?;
     assert!(top_help.status.success());
     let top_stdout = String::from_utf8(top_help.stdout).context("decode top help failed")?;
     assert!(top_stdout.contains("wallet"));
@@ -277,7 +277,7 @@ async fn agent_cli_help_shows_wallet_miner_doctor_and_mcp_mode() -> Result<()> {
     let mcp_help = Command::new(&ctl_bin)
         .args(["mcp", "--help"])
         .output()
-        .context("run powctl mcp --help failed")?;
+        .context("run powd mcp --help failed")?;
     assert!(mcp_help.status.success());
     let mcp_stdout = String::from_utf8(mcp_help.stdout).context("decode mcp help failed")?;
     assert!(mcp_stdout.contains("config"));
@@ -286,7 +286,7 @@ async fn agent_cli_help_shows_wallet_miner_doctor_and_mcp_mode() -> Result<()> {
     let set_mode_help = Command::new(&ctl_bin)
         .args(["miner", "set-mode", "--help"])
         .output()
-        .context("run powctl miner set-mode --help failed")?;
+        .context("run powd miner set-mode --help failed")?;
     assert!(set_mode_help.status.success());
     let set_mode_stdout =
         String::from_utf8(set_mode_help.stdout).context("decode set-mode help failed")?;
@@ -302,10 +302,11 @@ async fn agent_cli_help_shows_wallet_miner_doctor_and_mcp_mode() -> Result<()> {
         .context("run powd --help failed")?;
     assert!(daemon_help.status.success());
     let daemon_stdout = String::from_utf8(daemon_help.stdout).context("decode powd help failed")?;
-    assert!(daemon_stdout.contains("Internal daemon for powctl"));
-    assert!(daemon_stdout.contains("Use `powctl wallet set`"));
+    assert!(daemon_stdout.contains("Operate the local powd runtime and MCP bridge"));
+    assert!(daemon_stdout.contains("powd wallet set"));
     assert!(!daemon_stdout.contains("--login"));
     assert!(!daemon_stdout.contains("--pool"));
+    assert!(!daemon_stdout.contains("__daemon"));
     Ok(())
 }
 
@@ -470,7 +471,7 @@ async fn run_ctl_with_env(
     args: &[&str],
     json: bool,
 ) -> Result<std::process::Output> {
-    let ctl_bin = resolve_powctl_bin()?;
+    let ctl_bin = resolve_powd_bin()?;
     let mut command = Command::new(ctl_bin);
     command.arg("--socket").arg(socket_path);
     for (key, value) in envs {
@@ -479,6 +480,6 @@ async fn run_ctl_with_env(
     if json {
         command.arg("--json");
     }
-    let output = command.args(args).output().context("run powctl failed")?;
+    let output = command.args(args).output().context("run powd failed")?;
     Ok(output)
 }

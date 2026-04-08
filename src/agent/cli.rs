@@ -17,9 +17,9 @@ use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "powctl",
-    about = "Operate a local powd daemon",
-    after_help = "Examples:\n  powctl wallet set --wallet-address 0xabc...\n  powctl wallet show\n  powctl wallet reward\n  powctl miner start\n  powctl miner set-mode auto\n  powctl miner watch\n  powctl doctor\n  powctl mcp config"
+    name = "powd",
+    about = "Operate the local powd runtime and MCP bridge",
+    after_help = "Examples:\n  powd wallet set --wallet-address 0xabc...\n  powd wallet show\n  powd wallet reward\n  powd miner start\n  powd miner set-mode auto\n  powd miner watch\n  powd doctor\n  powd mcp config"
 )]
 pub struct AgentCliArgs {
     #[arg(

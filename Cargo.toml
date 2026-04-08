@@ -15,10 +15,6 @@ path = "src/bin/powd_miner.rs"
 name = "powd"
 path = "src/bin/powd.rs"
 
-[[bin]]
-name = "powctl"
-path = "src/bin/powctl.rs"
-
 [dependencies]
 anyhow = "~1"
 bytes = "1"

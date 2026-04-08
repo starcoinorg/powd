@@ -6,8 +6,8 @@ use tokio::sync::Mutex;
 
 pub static TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-pub fn resolve_powctl_bin() -> Result<PathBuf> {
-    resolve_binary("powctl")
+pub fn resolve_powd_bin() -> Result<PathBuf> {
+    resolve_binary("powd")
 }
 
 pub fn temp_test_path(prefix: &str, suffix: &str) -> PathBuf {

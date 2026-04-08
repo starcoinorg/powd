@@ -11,10 +11,6 @@ pub fn resolve_powd_bin() -> Result<PathBuf> {
     resolve_binary("powd")
 }
 
-pub fn resolve_powctl_bin() -> Result<PathBuf> {
-    resolve_binary("powctl")
-}
-
 pub fn pick_free_port() -> Result<u16> {
     let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     Ok(listener.local_addr()?.port())

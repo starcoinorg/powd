@@ -5,7 +5,7 @@ mod process;
 
 use anyhow::{Context, Result};
 use fake_reward_api::FakeRewardApi;
-use process::{resolve_powctl_bin, temp_test_path, TEST_MUTEX};
+use process::{resolve_powd_bin, temp_test_path, TEST_MUTEX};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -521,7 +521,7 @@ async fn spawn_mcp(
     socket_path: &PathBuf,
     reward_api_base: &str,
 ) -> Result<Child> {
-    let ctl_bin = resolve_powctl_bin()?;
+    let ctl_bin = resolve_powd_bin()?;
     let child = Command::new(ctl_bin)
         .env("POWD_STATE_PATH", state_path)
         .env("POWD_MAIN_REWARD_API", reward_api_base)
@@ -533,7 +533,7 @@ async fn spawn_mcp(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .context("spawn powctl mcp serve failed")?;
+        .context("spawn powd mcp serve failed")?;
     Ok(child)
 }
 

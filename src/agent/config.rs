@@ -21,8 +21,8 @@ const DEFAULT_STATUS_INTERVAL_SECS: u64 = 10;
 #[derive(Parser, Debug)]
 #[command(
     name = "powd",
-    about = "Internal daemon for powctl. Normally started automatically.",
-    after_help = "This is the internal daemon binary. Use `powctl wallet set` for first-time configuration, then drive miner start, mode changes, dashboard, and OpenClaw MCP integration through `powctl`."
+    about = "Internal daemon mode for powd. Not for direct use.",
+    after_help = "This parser is only used by powd's internal hidden daemon mode."
 )]
 pub struct AgentArgs {
     #[arg(long, help = "Unix socket path for the local API")]

@@ -237,7 +237,7 @@ impl McpServer {
                             "tools": { "listChanged": false }
                         },
                         "serverInfo": {
-                            "name": "powctl",
+                            "name": "powd",
                             "version": env!("CARGO_PKG_VERSION"),
                         }
                     }),

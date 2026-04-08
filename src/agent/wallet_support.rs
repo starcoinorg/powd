@@ -70,7 +70,7 @@ impl Display for WalletAgentError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotConfigured => {
-                f.write_str("mint not configured; run `wallet set --wallet-address ...` first")
+                f.write_str("mint not configured; run `powd wallet set --wallet-address ...` first")
             }
             Self::Io { context, source } => write!(f, "{context} failed: {source}"),
             Self::StateParse(err) => write!(f, "parse state file failed: {err}"),
@@ -138,6 +138,13 @@ pub(super) fn resolve_binary_from_current_exe(
     Err(WalletAgentError::BinaryNotFound {
         name,
         near: current,
+    })
+}
+
+pub(super) fn current_executable_path() -> Result<PathBuf, WalletAgentError> {
+    std::env::current_exe().map_err(|source| WalletAgentError::Io {
+        context: "resolve current executable",
+        source,
     })
 }
 
@@ -233,12 +240,12 @@ mod tests {
 
     #[test]
     fn resolving_a_missing_sibling_binary_fails() {
-        let err = resolve_binary_from_current_exe("powctl-not-a-real-binary")
+        let err = resolve_binary_from_current_exe("powd-not-a-real-binary")
             .expect_err("missing sibling binary should fail");
         assert!(matches!(
             err,
             WalletAgentError::BinaryNotFound {
-                name: "powctl-not-a-real-binary",
+                name: "powd-not-a-real-binary",
                 ..
             }
         ));

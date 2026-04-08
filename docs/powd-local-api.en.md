@@ -4,8 +4,8 @@
 
 This document describes the currently supported local surfaces around `powd`:
 
-- the public CLI exposed by `powctl`
-- the MCP tool surface exposed by `powctl mcp serve`
+- the public CLI exposed by `powd`
+- the MCP tool surface exposed by `powd mcp serve`
 - the daemon-private Unix socket JSON-RPC
 - the stable status fields that local callers can rely on
 
@@ -13,9 +13,9 @@ For the broader OpenClaw integration rationale, see [powd-openclaw-integration.e
 
 ## User model
 
-The public entrypoint is always `powctl`.
+The public entrypoint is always `powd`.
 
-The persisted user profile is owned by `powctl`, not by the daemon. It contains:
+The persisted user profile is owned by the public `powd` entrypoint, not by the daemon. It contains:
 
 - `wallet_address`
 - `worker_name`
@@ -36,13 +36,13 @@ The following values are derived inside the daemon and are not persisted:
 
 ## Public CLI
 
-`powctl` is the only public human/script entrypoint.
+`powd` is the only public human/script entrypoint.
 
 ### Wallet commands
 
-- `powctl wallet set --wallet-address <addr> [--network main|halley]`
-- `powctl wallet show`
-- `powctl wallet reward`
+- `powd wallet set --wallet-address <addr> [--network main|halley]`
+- `powd wallet show`
+- `powd wallet reward`
 
 Semantics:
 
@@ -57,13 +57,13 @@ Semantics:
 
 ### Miner commands
 
-- `powctl miner status`
-- `powctl miner start`
-- `powctl miner stop`
-- `powctl miner pause`
-- `powctl miner resume`
-- `powctl miner set-mode <auto|conservative|idle|balanced|aggressive>`
-- `powctl miner watch`
+- `powd miner status`
+- `powd miner start`
+- `powd miner stop`
+- `powd miner pause`
+- `powd miner resume`
+- `powd miner set-mode <auto|conservative|idle|balanced|aggressive>`
+- `powd miner watch`
 
 Mode semantics:
 
@@ -79,10 +79,10 @@ Mode semantics:
 
 ### Host integration commands
 
-- `powctl doctor`
-- `powctl mcp config`
-- `powctl mcp config --server-only`
-- `powctl mcp serve`
+- `powd doctor`
+- `powd mcp config`
+- `powd mcp config --server-only`
+- `powd mcp serve`
 
 Semantics:
 
@@ -90,11 +90,11 @@ Semantics:
 - `mcp config` prints the standard `mcpServers` JSON snippet for this machine
 - `mcp config --server-only` prints just the single MCP server object for `openclaw mcp set`
 - `mcp serve` runs the stdio MCP server that OpenClaw launches
-- `mcp config` always emits an absolute `powctl` path and a stable `env: {}`
+- `mcp config` always emits an absolute `powd` path and a stable `env: {}`
 
 ## MCP tool surface
 
-`powctl mcp serve` exposes these business tools:
+`powd mcp serve` exposes these business tools:
 
 - `wallet_set`
 - `wallet_show`
@@ -125,7 +125,7 @@ CLI and MCP share the same underlying business commands. They are different tran
 
 ## Daemon-private JSON-RPC
 
-`powd` serves a daemon-private Unix socket JSON-RPC. It is used by `powctl`, the dashboard, and diagnostics.
+`powd` serves a daemon-private Unix socket JSON-RPC. It is used by the public `powd` entrypoint, the dashboard, and diagnostics.
 
 Current methods:
 
@@ -155,12 +155,12 @@ The daemon derives `login`, `pool`, `pass`, and `consensus_strategy` from that p
 
 `powd` starts blank. It does not accept public business arguments such as `--login` or `--pool`.
 
-For any `powctl` command that needs the daemon:
+For any `powd` command that needs the daemon:
 
-1. `ctl` loads the persisted profile
-2. if the daemon is missing, `ctl` starts a blank `powd`
-3. `ctl` calls `daemon.configure(profile)`
-4. `ctl` performs the requested business action
+1. `powd` loads the persisted profile
+2. if the daemon is missing, `powd` starts its hidden daemon mode
+3. `powd` calls `daemon.configure(profile)`
+4. `powd` performs the requested business action
 
 If no persisted profile exists, `wallet set` must be run first.
 
@@ -205,7 +205,7 @@ Semantics:
 
 ## TUI
 
-`powctl miner watch` is the human-facing dashboard.
+`powd miner watch` is the human-facing dashboard.
 
 It shows:
 

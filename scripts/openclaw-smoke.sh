@@ -20,9 +20,9 @@ if ! command -v openclaw >/dev/null 2>&1; then
   exit 1
 fi
 
-cargo build --quiet --bin powctl --bin powd
+cargo build --quiet --bin powd
 
-powctl_bin="$repo_root/target/debug/powctl"
+powd_bin="$repo_root/target/debug/powd"
 wallet_address="${POWD_OPENCLAW_WALLET:-0x11111111111111111111111111111111}"
 state_path="$POWD_OPENCLAW_ROOT/powd-state.json"
 socket_path="$POWD_OPENCLAW_ROOT/powd.sock"
@@ -30,18 +30,18 @@ export POWD_STATE_PATH="$state_path"
 
 openclaw --version >/dev/null
 
-"$powctl_bin" --socket "$socket_path" --json wallet set --wallet-address "$wallet_address" >/dev/null
+"$powd_bin" --socket "$socket_path" --json wallet set --wallet-address "$wallet_address" >/dev/null
 
-doctor_json="$("$powctl_bin" --socket "$socket_path" --json doctor)"
+doctor_json="$("$powd_bin" --socket "$socket_path" --json doctor)"
 printf '%s\n' "$doctor_json" | jq -e --arg wallet "$wallet_address" '
   .wallet_configured == true and
   .wallet_address == $wallet and
   .requested_mode == "auto"
 ' >/dev/null
 
-server_json="$("$powctl_bin" --socket "$socket_path" --json mcp config --server-only)"
-printf '%s\n' "$server_json" | jq -e --arg powctl "$powctl_bin" '
-  .command == $powctl and
+server_json="$("$powd_bin" --socket "$socket_path" --json mcp config --server-only)"
+printf '%s\n' "$server_json" | jq -e --arg powd "$powd_bin" '
+  .command == $powd and
   .args == ["mcp", "serve"] and
   .env == {}
 ' >/dev/null
@@ -50,8 +50,8 @@ openclaw mcp unset powd >/dev/null 2>&1 || true
 openclaw mcp set powd "$server_json" >/dev/null
 
 saved_json="$(openclaw mcp show powd --json)"
-printf '%s\n' "$saved_json" | jq -e --arg powctl "$powctl_bin" '
-  .command == $powctl and
+printf '%s\n' "$saved_json" | jq -e --arg powd "$powd_bin" '
+  .command == $powd and
   .args == ["mcp", "serve"] and
   .env == {}
 ' >/dev/null

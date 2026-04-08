@@ -16,11 +16,11 @@ It is the canonical integration document. The concrete command and API reference
 The supported shape has three responsibilities:
 
 - `powd`
-  - the only daemon
-  - owns the active miner runtime, local API, event history, and internal auto loop
-- `powctl`
   - the only public front-end
   - owns persisted user profile, CLI, TUI, and the MCP bridge
+  - self-bootstraps its hidden daemon mode when runtime work is needed
+- hidden `powd` daemon mode
+  - owns the active miner runtime, local API, event history, and internal auto loop
 - OpenClaw
   - registers the MCP bridge
   - calls MCP tools
@@ -45,20 +45,20 @@ The main loop belongs in `powd` because the daemon already owns the long-lived r
 
 That loop is deterministic code, not an LLM prompt loop.
 
-`powctl` owns user intent and bootstrapping, but the daemon owns the actual long-lived miner execution. That makes the policy durable even when OpenClaw is closed.
+The public `powd` entrypoint owns user intent and bootstrapping, but the hidden daemon mode owns the actual long-lived miner execution. That makes the policy durable even when OpenClaw is closed.
 
 ## Adaptation path
 
 The formal `powd` host entrypoints are:
 
-- `powctl mcp serve`
-- `powctl mcp config`
+- `powd mcp serve`
+- `powd mcp config`
 
-`powctl mcp serve` runs the stdio MCP server.
+`powd mcp serve` runs the stdio MCP server.
 
-`powctl mcp config` prints a standard local MCP config snippet with:
+`powd mcp config` prints a standard local MCP config snippet with:
 
-- an absolute `powctl` path
+- an absolute `powd` path
 - `args = ["mcp", "serve"]`
 - `env = {}`
 
@@ -66,7 +66,7 @@ OpenClaw only needs to register that command. It does not need to know the daemo
 
 For OpenClaw-managed saved config, the supported registration flow is:
 
-1. `powctl mcp config --server-only`
+1. `powd mcp config --server-only`
 2. `openclaw mcp set powd '<json>'`
 3. `openclaw mcp show powd --json`
 
@@ -109,7 +109,6 @@ It intentionally hides:
 The OpenClaw-facing package contains:
 
 - `powd`
-- `powctl`
 
 `powd-miner` remains a low-level debug binary. It is not part of the normal OpenClaw install path.
 
@@ -117,13 +116,13 @@ The normal install path is:
 
 1. install the package
 2. configure the wallet once:
-   - `powctl wallet set --wallet-address <addr> [--network main|halley]`
+   - `powd wallet set --wallet-address <addr> [--network main|halley]`
 3. if OpenClaw is used, print the MCP snippet:
-   - `powctl mcp config`
+   - `powd mcp config`
 4. register that MCP command in OpenClaw
 5. operate through:
    - OpenClaw tools
-   - or `powctl miner watch`
+   - or `powd miner watch`
 
 Defaults:
 
@@ -162,19 +161,19 @@ When the user runs `wallet set` again:
 - `wallet_address` is updated
 - `worker_name` stays stable
 - `network` stays unchanged unless `--network` is explicitly provided
-- if the daemon is already running, `ctl` reconfigures it immediately through the private API
+- if the daemon is already running, `powd` reconfigures it immediately through the private API
 - the daemon preserves runtime intent across that reconfiguration
 
 ## Why this boundary is the best fit
 
 This organization gives a clean split:
 
-- `ctl` owns user intent and persisted profile
-- the daemon owns runtime execution and automatic budgeting
+- the public `powd` entrypoint owns user intent and persisted profile
+- the hidden daemon mode owns runtime execution and automatic budgeting
 - OpenClaw uses MCP as the supported host boundary
 
 That keeps third-party integration realistic:
 
 - no OpenClaw source dependency
 - no second long-lived adapter process
-- no duplicated business configuration in both `ctl` and daemon startup flags
+- no duplicated business configuration in both the public entrypoint and daemon startup flags
