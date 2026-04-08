@@ -86,7 +86,7 @@ pub fn build_agent_methods(capabilities: &MinerCapabilities) -> AgentMethods {
                         },
                     ),
                     (
-                        "worker_id".to_string(),
+                        "worker_name".to_string(),
                         MethodFieldSchema {
                             type_name: "string".to_string(),
                             optional: false,

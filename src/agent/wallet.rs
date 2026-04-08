@@ -202,7 +202,7 @@ impl WalletAgent {
                     wallet_address: profile
                         .as_ref()
                         .map(|value| value.wallet_address.to_string()),
-                    worker_id: profile.as_ref().map(|value| value.worker_id.to_string()),
+                    worker_name: profile.as_ref().map(|value| value.worker_name.to_string()),
                     network: profile.as_ref().map(|value| value.network),
                     login: profile.as_ref().map(MintProfile::login_string),
                     requested_mode: profile.as_ref().map(|value| value.requested_mode),
@@ -221,7 +221,7 @@ impl WalletAgent {
                     wallet_address: profile
                         .as_ref()
                         .map(|value| value.wallet_address.to_string()),
-                    worker_id: profile.as_ref().map(|value| value.worker_id.to_string()),
+                    worker_name: profile.as_ref().map(|value| value.worker_name.to_string()),
                     network: profile.as_ref().map(|value| value.network),
                     login: profile.as_ref().map(MintProfile::login_string),
                     requested_mode: profile.as_ref().map(|value| value.requested_mode),
@@ -301,7 +301,7 @@ impl WalletAgent {
     async fn summary(&self, profile: MintProfile) -> Result<WalletConfigSummary, WalletAgentError> {
         Ok(WalletConfigSummary {
             wallet_address: profile.wallet_address.to_string(),
-            worker_id: profile.worker_id.to_string(),
+            worker_name: profile.worker_name.to_string(),
             network: profile.network,
             login: profile.login_string(),
             state_path: self.state_path.display().to_string(),
@@ -344,7 +344,7 @@ impl WalletAgent {
                 "daemon.configure",
                 Some(json!({
                     "wallet_address": profile.wallet_address,
-                    "worker_id": profile.worker_id,
+                    "worker_name": profile.worker_name,
                     "requested_mode": profile.requested_mode,
                     "network": profile.network,
                 })),
@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_wallet_keeps_worker_id_and_network_defaults() {
+    async fn set_wallet_keeps_worker_name_and_network_defaults() {
         let socket_path = temp_path("wallet-socket", "sock");
         let state_path = temp_path("wallet-state", "json");
         let agent =
@@ -433,14 +433,14 @@ mod tests {
             )
             .await
             .expect("wallet update should succeed");
-        assert_eq!(first.worker_id, second.worker_id);
+        assert_eq!(first.worker_name, second.worker_name);
         assert_eq!(second.network, MintNetwork::Main);
 
         let _ = std::fs::remove_file(state_path);
     }
 
     #[tokio::test]
-    async fn set_wallet_can_change_network_without_replacing_worker_id() {
+    async fn set_wallet_can_change_network_without_replacing_worker_name() {
         let socket_path = temp_path("wallet-socket-network", "sock");
         let state_path = temp_path("wallet-state-network", "json");
         let agent =
@@ -460,7 +460,7 @@ mod tests {
             )
             .await
             .expect("wallet set should update network");
-        assert_eq!(first.worker_id, second.worker_id);
+        assert_eq!(first.worker_name, second.worker_name);
         assert_eq!(second.network, MintNetwork::Halley);
 
         let _ = std::fs::remove_file(state_path);

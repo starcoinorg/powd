@@ -105,7 +105,7 @@ The normal install path is:
 Defaults:
 
 - `network = main`
-- `worker_id` is generated automatically on first wallet set
+- `worker_name` is generated automatically on first wallet set
 - `requested_mode = auto` on first wallet set
 
 The user does not need to manage:
@@ -122,7 +122,7 @@ Changing the payout wallet is part of the normal flow.
 When the user runs `wallet set` again:
 
 - `wallet_address` is updated
-- `worker_id` stays stable
+- `worker_name` stays stable
 - `network` stays unchanged unless `--network` is explicitly provided
 - if the daemon is already running, `ctl` reconfigures it immediately through the private API
 - the daemon preserves runtime intent across that reconfiguration

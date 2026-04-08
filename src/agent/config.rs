@@ -1,6 +1,6 @@
 use crate::{
     default_budget_for_mode, Budget, BudgetMode, ConfigError, MinerConfig, MintNetwork,
-    StratumLogin, WalletAddress, WorkerId,
+    StratumLogin, WalletAddress, WorkerName,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -36,7 +36,7 @@ pub struct AgentConfig {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MintProfile {
     pub wallet_address: WalletAddress,
-    pub worker_id: WorkerId,
+    pub worker_name: WorkerName,
     #[serde(default = "default_requested_mode")]
     pub requested_mode: BudgetMode,
     #[serde(default = "default_network")]
@@ -66,13 +66,13 @@ impl AgentArgs {
 
 impl MintProfile {
     pub fn login_string(&self) -> String {
-        format!("{}.{}", self.wallet_address, self.worker_id)
+        format!("{}.{}", self.wallet_address, self.worker_name)
     }
 
     pub fn login(&self) -> StratumLogin {
         self.login_string()
             .parse()
-            .expect("persisted wallet_address.worker_id should form a valid stratum login")
+            .expect("persisted wallet_address.worker_name should form a valid stratum login")
     }
 }
 

@@ -2,7 +2,7 @@ use super::client::AgentClientError;
 use super::config::{default_network, default_requested_mode, MintProfile};
 use super::reward::RewardError;
 use super::AgentConnection;
-use crate::{BudgetMode, MinerState, MintNetwork, WalletAddress, WorkerId};
+use crate::{BudgetMode, MinerState, MintNetwork, WalletAddress, WorkerName};
 use serde::Serialize;
 use std::fmt::{Display, Formatter};
 use std::fs;
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct WalletConfigSummary {
     pub wallet_address: String,
-    pub worker_id: String,
+    pub worker_name: String,
     pub network: MintNetwork,
     pub login: String,
     pub state_path: String,
@@ -27,7 +27,7 @@ pub(crate) struct DoctorReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wallet_address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub worker_id: Option<String>,
+    pub worker_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network: Option<MintNetwork>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -87,18 +87,18 @@ impl Display for WalletAgentError {
 
 impl std::error::Error for WalletAgentError {}
 
-pub(super) fn generate_worker_id() -> WorkerId {
+pub(super) fn generate_worker_name() -> WorkerName {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |value| value.as_nanos());
-    WorkerId::parse(format!("agent{:x}", now ^ u128::from(std::process::id())))
-        .expect("generated worker_id should be valid")
+    WorkerName::parse(format!("agent{:x}", now ^ u128::from(std::process::id())))
+        .expect("generated worker_name should be valid")
 }
 
 pub(super) fn profile_with_defaults(wallet_address: WalletAddress) -> MintProfile {
     MintProfile {
         wallet_address,
-        worker_id: generate_worker_id(),
+        worker_name: generate_worker_name(),
         requested_mode: default_requested_mode(),
         network: default_network(),
     }
@@ -193,7 +193,7 @@ pub(super) async fn wait_for_daemon_ready(
 mod tests {
     use super::write_file_atomically;
     use crate::agent::config::MintProfile;
-    use crate::{BudgetMode, MintNetwork, WalletAddress, WorkerId};
+    use crate::{BudgetMode, MintNetwork, WalletAddress, WorkerName};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -216,11 +216,11 @@ mod tests {
 
     #[test]
     fn persisted_state_defaults_to_auto_mode_and_main_network() {
-        let encoded = br#"{"wallet_address":"0x1","worker_id":"agent1"}"#;
-        let decoded: MintProfile = serde_json::from_slice(encoded).expect("decode legacy state");
+        let encoded = br#"{"wallet_address":"0x1","worker_name":"agent1"}"#;
+        let decoded: MintProfile = serde_json::from_slice(encoded).expect("decode state");
         assert_eq!(decoded.requested_mode, BudgetMode::Auto);
         assert_eq!(decoded.network, MintNetwork::Main);
         assert_eq!(decoded.wallet_address, WalletAddress::parse("0x1").unwrap());
-        assert_eq!(decoded.worker_id, WorkerId::parse("agent1").unwrap());
+        assert_eq!(decoded.worker_name, WorkerName::parse("agent1").unwrap());
     }
 }

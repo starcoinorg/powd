@@ -105,7 +105,7 @@ MCP bridge 只暴露公开业务工具：
 默认值：
 
 - `network = main`
-- 首次 `wallet set` 自动生成 `worker_id`
+- 首次 `wallet set` 自动生成 `worker_name`
 - 首次 `wallet set` 默认 `requested_mode = auto`
 
 用户不需要管理：
@@ -122,7 +122,7 @@ MCP bridge 只暴露公开业务工具：
 用户再次执行 `wallet set` 时：
 
 - 更新 `wallet_address`
-- `worker_id` 保持稳定
+- `worker_name` 保持稳定
 - 只有显式传 `--network` 时才改变 `network`
 - 如果 daemon 已运行，`ctl` 通过私有 API 立即重配它
 - daemon 在这次重配前后保持原运行意图

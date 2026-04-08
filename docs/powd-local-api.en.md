@@ -18,7 +18,7 @@ The public entrypoint is always `powctl`.
 The persisted user profile is owned by `powctl`, not by the daemon. It contains:
 
 - `wallet_address`
-- `worker_id`
+- `worker_name`
 - `requested_mode`
 - `network`
 
@@ -29,7 +29,7 @@ Supported `network` values:
 
 The following values are derived inside the daemon and are not persisted:
 
-- `login = wallet_address.worker_id`
+- `login = wallet_address.worker_name`
 - `pool`
 - `pass`
 - `consensus_strategy`
@@ -47,9 +47,9 @@ The following values are derived inside the daemon and are not persisted:
 Semantics:
 
 - `wallet set` is the only wallet write command
-- on first use it creates a stable `worker_id`
+- on first use it creates a stable `worker_name`
 - later calls update `wallet_address`
-- `worker_id` stays stable
+- `worker_name` stays stable
 - `--network` defaults to `main` on first use; later omission keeps the current network
 - if the daemon is already running, `wallet set` reconfigures it immediately
 - `wallet reward` is a separate external account query against pool-service
@@ -142,7 +142,7 @@ Current methods:
 `daemon.configure` is private. It accepts:
 
 - `wallet_address`
-- `worker_id`
+- `worker_name`
 - `requested_mode`
 - `network`
 

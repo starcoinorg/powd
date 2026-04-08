@@ -1,7 +1,7 @@
 use super::state::SharedState;
 use crate::agent::config::MintProfile;
 use crate::{
-    AgentError, AgentErrorKind, BudgetMode, MinerEvent, MintNetwork, WalletAddress, WorkerId,
+    AgentError, AgentErrorKind, BudgetMode, MinerEvent, MintNetwork, WalletAddress, WorkerName,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -74,7 +74,7 @@ struct EventsSinceParams {
 #[derive(Deserialize)]
 struct ConfigureParams {
     wallet_address: WalletAddress,
-    worker_id: WorkerId,
+    worker_name: WorkerName,
     requested_mode: BudgetMode,
     network: MintNetwork,
 }
@@ -209,7 +209,7 @@ async fn handle_request(
                 state
                     .configure(MintProfile {
                         wallet_address: params.wallet_address,
-                        worker_id: params.worker_id,
+                        worker_name: params.worker_name,
                         requested_mode: params.requested_mode,
                         network: params.network,
                     })

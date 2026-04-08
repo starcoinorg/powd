@@ -42,7 +42,7 @@ impl AgentProcess {
                 "daemon.configure",
                 Some(json!({
                     "wallet_address": "0xd820b199fbaf1bc5e68eb1c511c2c3d1",
-                    "worker_id": "agent",
+                    "worker_name": "agent",
                     "requested_mode": "auto",
                     "network": "main",
                 })),

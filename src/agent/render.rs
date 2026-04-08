@@ -20,7 +20,7 @@ where
 
 pub(crate) fn print_wallet_summary(summary: &WalletConfigSummary) {
     println!("wallet_address: {}", summary.wallet_address);
-    println!("worker_id: {}", summary.worker_id);
+    println!("worker_name: {}", summary.worker_name);
     println!("network: {}", serde_name(&summary.network));
     println!("login: {}", summary.login);
     println!("daemon_running: {}", summary.daemon_running);
@@ -62,8 +62,11 @@ pub(crate) fn print_doctor_report(report: &DoctorReport) {
             .unwrap_or_else(|| "-".to_string())
     );
     println!(
-        "worker_id: {}",
-        report.worker_id.clone().unwrap_or_else(|| "-".to_string())
+        "worker_name: {}",
+        report
+            .worker_name
+            .clone()
+            .unwrap_or_else(|| "-".to_string())
     );
     println!(
         "network: {}",

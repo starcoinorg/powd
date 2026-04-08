@@ -277,14 +277,14 @@ fn tool_specs() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
             name: "wallet_set",
-            description: "Persist or replace the payout wallet. First use creates a stable worker id. Later updates keep the same worker id and optionally switch network.",
+            description: "Persist or replace the payout wallet. First use creates a stable worker name. Later updates keep the same worker name and optionally switch network.",
             input_schema: wallet_schema(
-                "Payout wallet address. On first use this creates a stable worker id; later calls preserve it.",
+                "Payout wallet address. On first use this creates a stable worker name; later calls preserve it.",
             ),
         },
         ToolSpec {
             name: "wallet_show",
-            description: "Show the persisted wallet address, worker id, network, and derived login.",
+            description: "Show the persisted wallet address, worker name, network, and derived login.",
             input_schema: empty_object_schema(),
         },
         ToolSpec {

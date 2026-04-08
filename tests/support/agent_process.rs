@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use powd::agent::{AgentConnection, MintProfile};
-use powd::{BudgetMode, MintNetwork, WalletAddress, WorkerId};
+use powd::{BudgetMode, MintNetwork, WalletAddress, WorkerName};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -27,7 +27,7 @@ impl AgentProcess {
         }
         let profile = MintProfile {
             wallet_address: WalletAddress::parse("0xd820b199fbaf1bc5e68eb1c511c2c3d1")?,
-            worker_id: WorkerId::parse("agent")?,
+            worker_name: WorkerName::parse("agent")?,
             requested_mode: BudgetMode::Auto,
             network: MintNetwork::Main,
         };
@@ -53,7 +53,7 @@ impl AgentProcess {
                 "daemon.configure",
                 Some(json!({
                     "wallet_address": profile.wallet_address,
-                    "worker_id": profile.worker_id,
+                    "worker_name": profile.worker_name,
                     "requested_mode": profile.requested_mode,
                     "network": profile.network,
                 })),

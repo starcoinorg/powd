@@ -47,7 +47,7 @@ pub struct AgentCliArgs {
 
 #[derive(Subcommand, Debug)]
 enum AgentCliCommand {
-    #[command(about = "Configure and inspect the payout wallet and stable worker id")]
+    #[command(about = "Configure and inspect the payout wallet and stable worker name")]
     Wallet {
         #[command(subcommand)]
         command: WalletCliCommand,
@@ -67,13 +67,13 @@ enum AgentCliCommand {
 #[derive(Subcommand, Debug)]
 enum WalletCliCommand {
     #[command(
-        about = "Persist the payout wallet and optional network. On first use this creates a stable worker id.",
-        after_help = "This is the only wallet write command.\n- First use: creates a stable worker id and defaults network to main.\n- Later use: updates the wallet address, preserves worker id, and keeps the current network unless --network is given.\n- If the daemon is already running, the effective login is updated immediately."
+        about = "Persist the payout wallet and optional network. On first use this creates a stable worker name.",
+        after_help = "This is the only wallet write command.\n- First use: creates a stable worker name and defaults network to main.\n- Later use: updates the wallet address, preserves worker name, and keeps the current network unless --network is given.\n- If the daemon is already running, the effective login is updated immediately."
     )]
     Set {
         #[arg(
             long,
-            help = "Payout wallet address. The stable worker id is created on first use and preserved on later updates."
+            help = "Payout wallet address. The stable worker name is created on first use and preserved on later updates."
         )]
         wallet_address: String,
         #[arg(
@@ -83,7 +83,9 @@ enum WalletCliCommand {
         )]
         network: Option<CliNetwork>,
     },
-    #[command(about = "Show the persisted wallet address, worker id, network, and derived login")]
+    #[command(
+        about = "Show the persisted wallet address, worker name, network, and derived login"
+    )]
     Show,
     #[command(
         about = "Query account reward totals from the configured pool-service HTTP API",

@@ -31,7 +31,7 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
     .await?;
     assert_eq!(setup["wallet_address"], wallet);
     assert_eq!(setup["network"], "main");
-    assert!(setup["worker_id"]
+    assert!(setup["worker_name"]
         .as_str()
         .unwrap_or_default()
         .starts_with("agent"));
@@ -44,7 +44,7 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
     )
     .await?;
     assert_eq!(show["wallet_address"], wallet);
-    assert_eq!(show["worker_id"], setup["worker_id"]);
+    assert_eq!(show["worker_name"], setup["worker_name"]);
     assert_eq!(show["network"], "main");
 
     let doctor = run_ctl_with_env_json(
@@ -242,7 +242,7 @@ async fn agent_cli_help_shows_wallet_miner_integrate_and_auto_mode() -> Result<(
     let wallet_set_stdout =
         String::from_utf8(wallet_set_help.stdout).context("decode wallet set help failed")?;
     assert!(wallet_set_stdout.contains("Payout wallet address"));
-    assert!(wallet_set_stdout.contains("stable worker id"));
+    assert!(wallet_set_stdout.contains("stable worker name"));
     assert!(wallet_set_stdout.contains("Defaults to main on first use"));
 
     let wallet_reward_help = Command::new(&ctl_bin)

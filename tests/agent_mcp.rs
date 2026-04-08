@@ -188,8 +188,8 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
         "0x55555555555555555555555555555555"
     );
     assert_eq!(
-        set_wallet["result"]["structuredContent"]["worker_id"],
-        setup["result"]["structuredContent"]["worker_id"]
+        set_wallet["result"]["structuredContent"]["worker_name"],
+        setup["result"]["structuredContent"]["worker_name"]
     );
 
     let _ = child.kill().await;
