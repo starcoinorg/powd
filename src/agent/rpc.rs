@@ -1,5 +1,8 @@
-use super::state::{BudgetUpdate, SharedState};
-use crate::{AgentError, AgentErrorKind, BudgetMode, MinerEvent, Priority};
+use super::state::SharedState;
+use crate::agent::config::MintProfile;
+use crate::{
+    AgentError, AgentErrorKind, BudgetMode, MinerEvent, MintNetwork, WalletAddress, WorkerId,
+};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -64,18 +67,16 @@ struct SetModeParams {
 }
 
 #[derive(Deserialize)]
-struct SetBudgetParams {
-    #[serde(default)]
-    threads: Option<u16>,
-    #[serde(default)]
-    cpu_percent: Option<u8>,
-    #[serde(default)]
-    priority: Option<Priority>,
+struct EventsSinceParams {
+    since_seq: u64,
 }
 
 #[derive(Deserialize)]
-struct EventsSinceParams {
-    since_seq: u64,
+struct ConfigureParams {
+    wallet_address: WalletAddress,
+    worker_id: WorkerId,
+    requested_mode: BudgetMode,
+    network: MintNetwork,
 }
 
 type RpcResult<T> = std::result::Result<T, RpcFailure>;
@@ -193,7 +194,7 @@ async fn handle_request(
                 .await
                 .map_err(|err| RpcFailure::agent(&err))?,
         )?)),
-        "budget.set_mode" => {
+        "miner.set_mode" => {
             let params: SetModeParams = parse_params(request.params)?;
             Ok(ResponseMode::Single(serialize_result(
                 state
@@ -202,14 +203,15 @@ async fn handle_request(
                     .map_err(|err| RpcFailure::agent(&err))?,
             )?))
         }
-        "budget.set" => {
-            let params: SetBudgetParams = parse_params(request.params)?;
+        "daemon.configure" => {
+            let params: ConfigureParams = parse_params(request.params)?;
             Ok(ResponseMode::Single(serialize_result(
                 state
-                    .set_budget(BudgetUpdate {
-                        threads: params.threads,
-                        cpu_percent: params.cpu_percent,
-                        priority: params.priority,
+                    .configure(MintProfile {
+                        wallet_address: params.wallet_address,
+                        worker_id: params.worker_id,
+                        requested_mode: params.requested_mode,
+                        network: params.network,
                     })
                     .await
                     .map_err(|err| RpcFailure::agent(&err))?,
@@ -327,34 +329,46 @@ impl RpcFailure {
     }
 }
 
-async fn write_json_line(write_half: &mut OwnedWriteHalf, value: &impl Serialize) -> Result<()> {
-    let mut encoded = serde_json::to_vec(value)?;
-    encoded.push(b'\n');
-    write_half.write_all(&encoded).await?;
-    write_half.flush().await?;
-    Ok(())
-}
-
-async fn write_response<T: Serialize>(writer: &ConnectionWriter, value: &T) -> Result<()> {
+async fn write_response<T: Serialize>(writer: &ConnectionWriter, payload: &T) -> Result<()> {
     let mut guard = writer.lock().await;
-    write_json_line(&mut guard, value).await
+    let mut encoded = serde_json::to_vec(payload).context("encode response")?;
+    encoded.push(b'\n');
+    guard.write_all(&encoded).await.context("write response")?;
+    guard.flush().await.context("flush response")
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 fn verify_peer_credentials(stream: &UnixStream) -> Result<()> {
-    let creds = stream.peer_cred().context("read peer credentials failed")?;
-    let current_uid = unsafe { libc::geteuid() };
-    if creds.uid() != current_uid {
-        anyhow::bail!(
-            "socket peer uid mismatch: expected {}, got {}",
-            current_uid,
-            creds.uid()
-        );
-    }
-    Ok(())
-}
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        use std::os::fd::AsRawFd;
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
-fn verify_peer_credentials(_stream: &UnixStream) -> Result<()> {
+        let fd = stream.as_raw_fd();
+        let mut ucred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        let rc = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                &mut ucred as *mut _ as *mut libc::c_void,
+                &mut len,
+            )
+        };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error()).context("read peer credentials");
+        }
+        let expected_uid = unsafe { libc::geteuid() };
+        if ucred.uid != expected_uid {
+            anyhow::bail!(
+                "reject peer uid {} on local api socket; expected {}",
+                ucred.uid,
+                expected_uid
+            );
+        }
+    }
     Ok(())
 }

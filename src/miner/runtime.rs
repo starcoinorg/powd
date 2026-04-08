@@ -5,8 +5,8 @@ use super::runtime_support::{
 use super::solver::{SolverPool, SolverPoolGuard};
 use super::state::{ConnectFailure, ConnectState, InflightSubmit, RuntimeState};
 use super::{
-    AgentError, Budget, BudgetMode, MinerCapabilities, MinerConfig, MinerEvent, MinerSnapshot,
-    MinerState, RunnerError,
+    AgentError, AutoState, Budget, BudgetMode, MinerCapabilities, MinerConfig, MinerEvent,
+    MinerSnapshot, MinerState, RunnerError,
 };
 use crate::mining::job::{MiningJob, SolvedShare};
 use crate::stratum::client::{ClientEvent, LoginError, StratumClient};
@@ -111,7 +111,8 @@ impl MinerRunner {
             connected: false,
             pool: self.config.pool.clone(),
             worker_name: self.config.login.worker_name().to_string(),
-            current_mode: None,
+            requested_mode: BudgetMode::Auto,
+            effective_budget: initial_budget,
             hashrate: 0.0,
             hashrate_5m: 0.0,
             accepted: 0,
@@ -123,7 +124,12 @@ impl MinerRunner {
             reject_rate_5m: 0.0,
             reconnects: 0,
             uptime_secs: 0,
-            current_budget: initial_budget,
+            system_cpu_percent: 0.0,
+            system_memory_percent: 0.0,
+            system_cpu_percent_1m: 0.0,
+            system_memory_percent_1m: 0.0,
+            auto_state: AutoState::Inactive,
+            auto_hold_reason: None,
             last_error: None,
         };
         let (snapshot_tx, snapshot_rx) = watch::channel(initial_snapshot);
@@ -200,7 +206,7 @@ impl MinerHandle {
             .map_err(AgentError::InvalidBudget)?;
         self.send_command(RuntimeCommand::SetBudget(budget))?;
         self.wait_for_snapshot(
-            move |snapshot| snapshot.current_budget == budget,
+            move |snapshot| snapshot.effective_budget == budget,
             "set_budget",
         )
         .await

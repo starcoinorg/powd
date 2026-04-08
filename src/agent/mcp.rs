@@ -1,5 +1,6 @@
+use super::command::{AgentCommand, MinerAction, WalletAction};
 use super::wallet::WalletAgent;
-use crate::BudgetMode;
+use crate::{BudgetMode, MintNetwork, WalletAddress};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io;
@@ -55,16 +56,13 @@ struct CallToolParams {
 #[derive(Deserialize)]
 struct WalletArgs {
     wallet_address: String,
+    #[serde(default)]
+    network: Option<MintNetwork>,
 }
 
 #[derive(Deserialize)]
-struct SetModeArgs {
+struct ModeArgs {
     mode: BudgetMode,
-}
-
-#[derive(Deserialize)]
-struct EventsSinceArgs {
-    since_seq: u64,
 }
 
 #[derive(Serialize)]
@@ -135,14 +133,12 @@ impl McpServer {
                 .await?;
                 continue;
             }
-            if request.method.starts_with("notifications/") {
-                if request.method == "notifications/initialized" {
-                    continue;
-                }
+            if request.method == "notifications/initialized" {
+                continue;
             }
             let id = request.id.unwrap_or(Value::Null);
             let response = self
-                .handle_request(id.clone(), request.method, request.params)
+                .handle_request(id, request.method, request.params)
                 .await;
             self.write_response(&response).await?;
         }
@@ -160,9 +156,7 @@ impl McpServer {
                 id,
                 json!({
                     "protocolVersion": MCP_PROTOCOL_VERSION,
-                    "capabilities": {
-                        "tools": {}
-                    },
+                    "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "stc-mint-agentctl",
                         "version": env!("CARGO_PKG_VERSION"),
@@ -197,58 +191,12 @@ impl McpServer {
     }
 
     async fn call_tool(&self, params: CallToolParams) -> Value {
-        let result = match params.name.as_str() {
-            "setup" => {
-                let args: WalletArgs = match serde_json::from_value(params.arguments) {
-                    Ok(args) => args,
-                    Err(err) => return tool_error(format!("invalid setup args: {err}")),
-                };
-                self.agent
-                    .setup(&args.wallet_address)
-                    .await
-                    .map(|value| json!(value))
-            }
-            "set_wallet" => {
-                let args: WalletArgs = match serde_json::from_value(params.arguments) {
-                    Ok(args) => args,
-                    Err(err) => return tool_error(format!("invalid set_wallet args: {err}")),
-                };
-                self.agent
-                    .update_wallet(&args.wallet_address)
-                    .await
-                    .map(|value| json!(value))
-            }
-            "status" => self.agent.status().await.map(|value| json!(value)),
-            "capabilities" => self.agent.capabilities().await.map(|value| json!(value)),
-            "methods" => self.agent.methods().await,
-            "start" => self.agent.start().await.map(|value| json!(value)),
-            "stop" => self.agent.stop().await.map(|value| json!(value)),
-            "pause" => self.agent.pause().await.map(|value| json!(value)),
-            "resume" => self.agent.resume().await.map(|value| json!(value)),
-            "set_mode" => {
-                let args: SetModeArgs = match serde_json::from_value(params.arguments) {
-                    Ok(args) => args,
-                    Err(err) => return tool_error(format!("invalid set_mode args: {err}")),
-                };
-                self.agent
-                    .set_mode(args.mode)
-                    .await
-                    .map(|value| json!(value))
-            }
-            "events_since" => {
-                let args: EventsSinceArgs = match serde_json::from_value(params.arguments) {
-                    Ok(args) => args,
-                    Err(err) => return tool_error(format!("invalid events_since args: {err}")),
-                };
-                self.agent
-                    .events_since(args.since_seq)
-                    .await
-                    .map(|value| json!(value))
-            }
-            other => return tool_error(format!("unknown tool: {other}")),
+        let command = match build_command(&params.name, params.arguments) {
+            Ok(command) => command,
+            Err(err) => return tool_error(err),
         };
-        match result {
-            Ok(value) => tool_ok(value),
+        match self.agent.execute(command).await {
+            Ok(reply) => tool_ok(reply.to_value()),
             Err(err) => tool_error(err.to_string()),
         }
     }
@@ -287,105 +235,169 @@ impl McpServer {
     }
 }
 
+fn build_command(name: &str, arguments: Value) -> Result<AgentCommand, String> {
+    match name {
+        "wallet_set" => {
+            let (wallet_address, network) = parse_wallet_args(&arguments)?;
+            Ok(AgentCommand::Wallet(WalletAction::Set {
+                wallet_address,
+                network,
+            }))
+        }
+        "wallet_show" => Ok(AgentCommand::Wallet(WalletAction::Show)),
+        "miner_status" => Ok(AgentCommand::Miner(MinerAction::Status)),
+        "miner_start" => Ok(AgentCommand::Miner(MinerAction::Start)),
+        "miner_stop" => Ok(AgentCommand::Miner(MinerAction::Stop)),
+        "miner_pause" => Ok(AgentCommand::Miner(MinerAction::Pause)),
+        "miner_resume" => Ok(AgentCommand::Miner(MinerAction::Resume)),
+        "miner_set_mode" => Ok(AgentCommand::Miner(MinerAction::SetMode {
+            mode: parse_mode_args(arguments)?,
+        })),
+        other => Err(format!("unknown tool: {other}")),
+    }
+}
+
+fn parse_wallet_args(arguments: &Value) -> Result<(WalletAddress, Option<MintNetwork>), String> {
+    let args: WalletArgs = serde_json::from_value(arguments.clone())
+        .map_err(|err| format!("invalid wallet args: {err}"))?;
+    Ok((
+        WalletAddress::parse(args.wallet_address).map_err(|err| err.to_string())?,
+        args.network,
+    ))
+}
+
+fn parse_mode_args(arguments: Value) -> Result<BudgetMode, String> {
+    let args: ModeArgs =
+        serde_json::from_value(arguments).map_err(|err| format!("invalid mode args: {err}"))?;
+    Ok(args.mode)
+}
+
 fn tool_specs() -> Vec<ToolSpec> {
     vec![
         ToolSpec {
-            name: "setup",
-            description: "Configure the payout wallet and create a stable worker id.",
-            input_schema: wallet_schema(),
+            name: "wallet_set",
+            description: "Persist or replace the payout wallet. First use creates a stable worker id. Later updates keep the same worker id and optionally switch network.",
+            input_schema: wallet_schema(
+                "Payout wallet address. On first use this creates a stable worker id; later calls preserve it.",
+            ),
         },
         ToolSpec {
-            name: "set_wallet",
-            description: "Change the payout wallet. The stable worker id is preserved.",
-            input_schema: wallet_schema(),
+            name: "wallet_show",
+            description: "Show the persisted wallet address, worker id, network, and derived login.",
+            input_schema: empty_object_schema(),
         },
         ToolSpec {
-            name: "status",
-            description: "Read the current miner snapshot.",
-            input_schema: object_schema(&[]),
+            name: "miner_status",
+            description: "Read the current miner snapshot, including requested mode, effective budget, and auto state.",
+            input_schema: empty_object_schema(),
         },
         ToolSpec {
-            name: "capabilities",
-            description: "Read supported modes, priorities, and thread limits.",
-            input_schema: object_schema(&[]),
+            name: "miner_start",
+            description: "Start mining with the configured wallet identity.",
+            input_schema: empty_object_schema(),
         },
         ToolSpec {
-            name: "methods",
-            description: "Read the self-describing local API method schema.",
-            input_schema: object_schema(&[]),
-        },
-        ToolSpec {
-            name: "start",
-            description: "Start mining with the configured payout wallet.",
-            input_schema: object_schema(&[]),
-        },
-        ToolSpec {
-            name: "stop",
+            name: "miner_stop",
             description: "Stop mining and disconnect from the pool.",
-            input_schema: object_schema(&[]),
+            input_schema: empty_object_schema(),
         },
         ToolSpec {
-            name: "pause",
-            description: "Pause solving while keeping the daemon alive.",
-            input_schema: object_schema(&[]),
+            name: "miner_pause",
+            description: "Pause solving without deleting wallet or daemon state. In auto mode this holds automatic budgeting until resume or start.",
+            input_schema: empty_object_schema(),
         },
         ToolSpec {
-            name: "resume",
-            description: "Resume solving; starts the miner if it was stopped.",
-            input_schema: object_schema(&[]),
+            name: "miner_resume",
+            description: "Resume solving. If the miner is stopped, this starts it. In auto mode this clears the hold state.",
+            input_schema: empty_object_schema(),
         },
         ToolSpec {
-            name: "set_mode",
-            description: "Switch between safe preset mining modes.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "mode": {
-                        "type": "string",
-                        "enum": ["conservative", "idle", "balanced", "aggressive"]
-                    }
-                },
-                "required": ["mode"],
-                "additionalProperties": false
-            }),
-        },
-        ToolSpec {
-            name: "events_since",
-            description: "Fetch buffered miner events after a sequence number.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "since_seq": { "type": "integer", "minimum": 0 }
-                },
-                "required": ["since_seq"],
-                "additionalProperties": false
-            }),
+            name: "miner_set_mode",
+            description: "Set the miner mode. auto lets the daemon adjust budget from system CPU and memory usage; conservative, idle, balanced, and aggressive are fixed presets.",
+            input_schema: mode_schema(
+                "Mode to apply. auto lets the daemon adjust budget internally and never raises above the balanced ceiling by default.",
+            ),
         },
     ]
 }
 
-fn wallet_schema() -> Value {
+fn wallet_schema(description: &str) -> Value {
+    object_schema_with_optional(
+        &[(
+            "wallet_address",
+            json!({
+                "type": "string",
+                "description": description,
+            }),
+        )],
+        &[(
+            "network",
+            json!({
+                "type": "string",
+                "enum": ["main", "halley"],
+                "description": "Optional network profile. Omit to keep the current network, or default to main on first use.",
+            }),
+        )],
+    )
+}
+
+fn mode_schema(description: &str) -> Value {
+    object_schema(&[(
+        "mode",
+        json!({
+            "type": "string",
+            "enum": ["auto", "conservative", "idle", "balanced", "aggressive"],
+            "description": description,
+        }),
+    )])
+}
+
+fn empty_object_schema() -> Value {
+    object_schema::<&str>(&[])
+}
+
+fn object_schema<S: AsRef<str>>(fields: &[(S, Value)]) -> Value {
+    let properties = fields
+        .iter()
+        .map(|(name, schema)| (name.as_ref().to_string(), schema.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    let required = fields
+        .iter()
+        .map(|(name, _)| Value::String(name.as_ref().to_string()))
+        .collect::<Vec<_>>();
     json!({
         "type": "object",
-        "properties": {
-            "wallet_address": { "type": "string" }
-        },
-        "required": ["wallet_address"],
-        "additionalProperties": false
+        "properties": properties,
+        "required": required,
+        "additionalProperties": false,
     })
 }
 
-fn object_schema(required: &[&str]) -> Value {
+fn object_schema_with_optional<S: AsRef<str>, T: AsRef<str>>(
+    required_fields: &[(S, Value)],
+    optional_fields: &[(T, Value)],
+) -> Value {
+    let mut properties = serde_json::Map::new();
+    for (name, schema) in required_fields {
+        properties.insert(name.as_ref().to_string(), schema.clone());
+    }
+    for (name, schema) in optional_fields {
+        properties.insert(name.as_ref().to_string(), schema.clone());
+    }
+    let required = required_fields
+        .iter()
+        .map(|(name, _)| Value::String(name.as_ref().to_string()))
+        .collect::<Vec<_>>();
     json!({
         "type": "object",
-        "properties": {},
+        "properties": properties,
         "required": required,
-        "additionalProperties": false
+        "additionalProperties": false,
     })
 }
 
 fn parse_params<T: for<'de> Deserialize<'de>>(params: Option<Value>) -> Result<T, String> {
-    serde_json::from_value(params.unwrap_or_else(|| json!({})))
+    serde_json::from_value(params.unwrap_or(Value::Object(Default::default())))
         .map_err(|err| format!("invalid params: {err}"))
 }
 
@@ -414,51 +426,23 @@ fn tool_ok(value: Value) -> Value {
     serde_json::to_value(CallToolResult {
         content: vec![ContentBlock {
             kind: "text",
-            text: "ok".to_string(),
+            text: serde_json::to_string_pretty(&value).expect("format tool result"),
         }],
         structured_content: Some(value),
         is_error: false,
     })
-    .expect("encode successful tool result")
+    .expect("encode tool result")
 }
 
-fn tool_error(message: String) -> Value {
+fn tool_error(message: impl Into<String>) -> Value {
+    let message = message.into();
     serde_json::to_value(CallToolResult {
         content: vec![ContentBlock {
             kind: "text",
-            text: message,
+            text: message.clone(),
         }],
-        structured_content: None,
+        structured_content: Some(json!({ "error": message })),
         is_error: true,
     })
-    .expect("encode error tool result")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tool_specs_expose_only_safe_surface() {
-        let names = tool_specs()
-            .into_iter()
-            .map(|tool| tool.name)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            names,
-            vec![
-                "setup",
-                "set_wallet",
-                "status",
-                "capabilities",
-                "methods",
-                "start",
-                "stop",
-                "pause",
-                "resume",
-                "set_mode",
-                "events_since",
-            ]
-        );
-    }
+    .expect("encode tool error")
 }

@@ -1,174 +1,136 @@
 # `stc-mint-agent` and OpenClaw Integration
 
-## 1. Purpose
+## Purpose
 
-This document answers one set of organizational questions:
+This document fixes the supported third-party integration boundary for OpenClaw:
 
-- where the dynamic scheduling loop belongs
-- how OpenClaw should integrate
-- how installation should be packaged for users
-- why the system should be organized that way
+- where the main scheduling loop lives
+- how OpenClaw integrates without source patches
+- how the package is installed and handed to users
+- why the system is organized that way
 
-This is a **target organization document**, not the detailed local API reference. The concrete interface reference stays in:
+It is the canonical integration document. The concrete command and API reference stays in `docs/stc-mint-agent-local-api.en.md`.
 
-- `docs/stc-mint-agent-local-api.en.md`
+## Final organization
 
-## 2. Final Position
+The supported shape has three responsibilities:
 
-The best-practice shape is four fixed decisions:
+- `stc-mint-agent`
+  - the only daemon
+  - owns the active miner runtime, local API, event history, and internal auto loop
+- `stc-mint-agentctl`
+  - the only public front-end
+  - owns persisted user profile, CLI, TUI, and the MCP bridge
+- OpenClaw
+  - registers the MCP bridge
+  - calls MCP tools
+  - provides higher-level UX
 
-- `stc-mint-agent` is the only daemon that owns long-lived business state
-- the dynamic scheduling loop lives in the daemon as a `governor`
-- OpenClaw integrates through `stc-mint-agentctl mcp` as a **stdio MCP** entrypoint
-- `skill` / `plugin` are only discovery, install, and UX layers; they do not own the business loop
+This deliberately rejects:
 
-These options are explicitly rejected:
+- patching OpenClaw source for basic integration
+- putting the main scheduling loop into a skill prompt
+- putting the main scheduling loop into OpenClaw plugin code
+- adding a second adapter daemon beside `stc-mint-agent`
 
-- no requirement to patch OpenClaw source
-- no main loop inside OpenClaw internal code
-- no main loop inside a skill prompt
-- no second adapter daemon
+## Why the loop lives in the daemon
 
-## 3. Component Organization
+The main loop belongs in `stc-mint-agent` because the daemon already owns the long-lived runtime concerns:
 
-### 3.1 `stc-mint-agent`
+- the active miner runtime
+- reconnect and runtime transitions
+- event buffering
+- trend metrics
+- the effective runtime budget
 
-`stc-mint-agent` owns:
+That loop is deterministic code, not an LLM prompt loop.
 
-- the miner core
-- `wallet_address`
-- the stable `worker_id`
-- the derived login `wallet_address.worker_id`
-- runtime state, trend metrics, and the event buffer
-- the `governor` scheduling state
+`stc-mint-agentctl` owns user intent and bootstrapping, but the daemon owns the actual long-lived miner execution. That makes the policy durable even when OpenClaw is closed.
 
-`governor` is the daemon-local deterministic scheduling subsystem. It is responsible for:
+## Adaptation path
 
-- periodic sampling of system load and miner health
-- deciding between `conservative / idle / balanced / aggressive`
-- maintaining raise/lower cooldown and freeze state
-- suspending automatic scheduling after manual overrides
+The formal OpenClaw entrypoint is:
 
-### 3.2 `stc-mint-agentctl`
+- `stc-mint-agentctl integrate mcp`
 
-`stc-mint-agentctl` is the unified front-end and only owns three forms:
+This command runs a stdio MCP server.
 
-- human CLI
-- the `dashboard` TUI
-- the `mcp` bridge
+OpenClaw only needs to register that command. It does not need to know the daemon's private socket protocol.
 
-It does not own a second copy of business state and it does not run a second scheduling loop.
+The MCP bridge exposes only the public business tools:
 
-### 3.3 OpenClaw
+- `wallet_set`
+- `wallet_show`
+- `miner_status`
+- `miner_start`
+- `miner_stop`
+- `miner_pause`
+- `miner_resume`
+- `miner_set_mode`
 
-OpenClaw, as the host, only owns:
+It intentionally hides:
 
-- registering `stc-mint-agentctl mcp`
-- calling MCP tools
-- showing state
-- providing manual overrides
-- improving discovery and UX through skill / plugin
+- `daemon.configure`
+- raw `budget.set`
+- raw event streams
+- pool / pass / worker / strategy details
+- install-only or diagnostic-only commands
 
-OpenClaw does not need source patches and it does not own the miner's long-lived business state.
+## User-facing install path
 
-## 4. Why the loop belongs in the daemon
-
-The main loop belongs in `stc-mint-agent`, not in OpenClaw, for four reasons:
-
-- third-party integrations cannot assume long-term control over OpenClaw source
-- `wallet_address`, `worker_id`, login, pool connection, and the event buffer already live in the daemon; the loop belongs next to that state
-- `skill` is a prompt layer and `plugin` is an integration layer; neither is a good home for a persistent business loop with cooldown and freeze logic
-- the miner should keep a stable local policy even when OpenClaw is closed
-
-OpenClaw still matters, but its role narrows to:
-
-- local MCP client
-- user entrypoint
-- manual override and visibility layer
-
-## 5. Installation and Distribution
-
-The v1 user-facing distribution stays fixed to three binaries:
+The user-facing package contains:
 
 - `stc-mint-miner`
 - `stc-mint-agent`
 - `stc-mint-agentctl`
 
-The user path is wallet-first:
+The normal install path is:
 
 1. install the package
-2. run once:
-   - `stc-mint-agentctl setup --wallet-address <addr>`
-3. if OpenClaw is used, run:
-   - `stc-mint-agentctl mcp-config`
-4. register the generated MCP config in OpenClaw
-5. use the system through:
-   - OpenClaw MCP tools
-   - or `stc-mint-agentctl dashboard`
+2. configure the wallet once:
+   - `stc-mint-agentctl wallet set --wallet-address <addr> [--network main|halley]`
+3. if OpenClaw is used, print the MCP snippet:
+   - `stc-mint-agentctl integrate mcp-config`
+4. register that MCP command in OpenClaw
+5. operate through:
+   - OpenClaw tools
+   - or `stc-mint-agentctl miner watch`
 
-The user only deals with:
+Defaults:
 
-- `wallet_address`
+- `network = main`
+- `worker_id` is generated automatically on first wallet set
+- `requested_mode = auto` on first wallet set
 
-The system derives the rest automatically:
+The user does not need to manage:
 
-- default network = `main`
-- default pool = the mainnet pool
-- default algorithm = the mainnet default algorithm
-- auto-generated stable `worker_id`
-- derived login
-- daemon auto-start when needed
+- `login`
+- `pool`
+- `pass`
+- `consensus_strategy`
 
-When the payout address changes:
+## Wallet changes
 
-- only `wallet_address` changes
+Changing the payout wallet is part of the normal flow.
+
+When the user runs `wallet set` again:
+
+- `wallet_address` is updated
 - `worker_id` stays stable
-- the new login takes effect immediately through hot swap or a managed restart
+- `network` stays unchanged unless `--network` is explicitly provided
+- if the daemon is already running, `ctl` reconfigures it immediately through the private API
+- the daemon preserves runtime intent across that reconfiguration
 
-## 6. OpenClaw Adaptation Path
+## Why this boundary is the best fit
 
-The formal OpenClaw integration surface is fixed to:
+This organization gives a clean split:
 
-- `stc-mint-agentctl mcp`
+- `ctl` owns user intent and persisted profile
+- the daemon owns runtime execution and automatic budgeting
+- OpenClaw uses MCP as the supported host boundary
 
-This is a stdio MCP server. OpenClaw only needs to register it; it does not need to understand the miner's internal protocol.
+That keeps third-party integration realistic:
 
-The MCP surface exposes only safe tools:
-
-- `setup`
-- `set_wallet`
-- `status`
-- `capabilities`
-- `methods`
-- `start`
-- `stop`
-- `pause`
-- `resume`
-- `set_mode`
-- `events_since`
-- later governor-specific tools should stay governance-oriented and should not expose raw `budget.set`
-
-`skill` and `plugin` have fixed optional roles:
-
-- `skill`: teach the model when to use which MCP tools
-- `plugin`: help users register MCP and provide better UI or install flow
-
-Neither should own the miner's primary state or run the business loop.
-
-## 7. Final User Experience
-
-The final product mental model must collapse to two points:
-
-- give me a `wallet_address`
-- default to main; I do not care about the rest
-
-Human operators mainly use:
-
-- `stc-mint-agentctl dashboard`
-- a small CLI surface
-
-OpenClaw users mainly use:
-
-- the registered MCP tools
-
-Both paths share the same daemon, the same state, and the same scheduling rules.
+- no OpenClaw source dependency
+- no second long-lived adapter process
+- no duplicated business configuration in both `ctl` and daemon startup flags

@@ -1,4 +1,4 @@
-use super::{Budget, MinerSnapshot, MinerState};
+use super::{AutoState, Budget, BudgetMode, MinerSnapshot, MinerState};
 use crate::mining::job::{MiningJob, SolvedShare};
 use crate::stratum::client::StratumClient;
 use std::collections::VecDeque;
@@ -215,7 +215,8 @@ impl RuntimeState {
             connected: self.client.is_some(),
             pool: pool.to_string(),
             worker_name: worker_name.to_string(),
-            current_mode: None,
+            requested_mode: BudgetMode::Auto,
+            effective_budget: self.budget,
             hashrate: self.last_hashrate,
             hashrate_5m: rolling.hashrate,
             accepted: self.accepted,
@@ -227,7 +228,12 @@ impl RuntimeState {
             reject_rate_5m: rolling.reject_rate,
             reconnects: self.reconnects,
             uptime_secs: started_at.elapsed().as_secs(),
-            current_budget: self.budget,
+            system_cpu_percent: 0.0,
+            system_memory_percent: 0.0,
+            system_cpu_percent_1m: 0.0,
+            system_memory_percent_1m: 0.0,
+            auto_state: AutoState::Inactive,
+            auto_hold_reason: None,
             last_error: self.last_error.clone(),
         }
     }

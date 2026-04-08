@@ -1,5 +1,7 @@
+mod auto_mode;
 mod cli;
 mod client;
+mod command;
 mod config;
 mod dashboard;
 mod mcp;
@@ -11,25 +13,63 @@ mod wallet_support;
 
 pub use cli::{run_cli, AgentCliArgs};
 pub use client::{AgentClientError, AgentConnection, RpcFailure};
-pub use config::{default_socket_path, AgentArgs};
+pub use config::{default_socket_path, AgentArgs, MintProfile};
 
 use anyhow::{Context, Result};
+use auto_mode::{SystemUsageSampler, AUTO_TICK_INTERVAL, SYSTEM_USAGE_SAMPLE_INTERVAL};
 use config::{prepare_socket_path, restrict_socket_permissions};
 use rpc::serve_connection;
 use state::SharedState;
 use tokio::net::UnixListener;
+use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 
 pub async fn run(args: AgentArgs) -> Result<()> {
-    let config = args.into_config()?;
+    let config = args.into_config();
     prepare_socket_path(&config.socket_path)?;
-    let runner = crate::MinerRunner::new(config.miner_config.clone())?;
-    let state = SharedState::new(config.miner_config, runner, config.initial_budget);
+    let state = SharedState::new();
     let shutdown = CancellationToken::new();
     let shutdown_listener = shutdown.clone();
     tokio::spawn(async move {
         wait_for_shutdown_signal().await;
         shutdown_listener.cancel();
+    });
+    let usage_state = state.clone();
+    let usage_shutdown = shutdown.clone();
+    tokio::spawn(async move {
+        let mut sampler = SystemUsageSampler::new();
+        usage_state.record_system_usage(sampler.sample()).await;
+        let mut interval = tokio::time::interval(SYSTEM_USAGE_SAMPLE_INTERVAL);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                _ = usage_shutdown.cancelled() => break,
+                _ = interval.tick() => {
+                    usage_state.record_system_usage(sampler.sample()).await;
+                }
+            }
+        }
+    });
+    let auto_state = state.clone();
+    let auto_shutdown = shutdown.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(AUTO_TICK_INTERVAL);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                _ = auto_shutdown.cancelled() => break,
+                _ = interval.tick() => {
+                    if let Err(err) = auto_state.tick_auto().await {
+                        starcoin_logger::prelude::warn!(
+                            target: "stc_mint_agent",
+                            "auto loop tick failed: {err}"
+                        );
+                    }
+                }
+            }
+        }
     });
     let listener = UnixListener::bind(&config.socket_path)
         .with_context(|| format!("bind unix socket {}", config.socket_path.display()))?;

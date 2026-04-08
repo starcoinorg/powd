@@ -1,5 +1,5 @@
-use super::wallet::{DoctorReport, WalletConfigSummary};
-use crate::{AgentMethods, EventsSinceResponse, MinerCapabilities, MinerEvent, MinerSnapshot};
+use super::wallet_support::{DoctorReport, WalletConfigSummary};
+use crate::{Budget, MinerEvent, MinerSnapshot};
 use serde::Serialize;
 
 pub(crate) fn print_json_or_text<T, F>(value: &T, json_output: bool, printer: F)
@@ -20,6 +20,7 @@ where
 pub(crate) fn print_wallet_summary(summary: &WalletConfigSummary) {
     println!("wallet_address: {}", summary.wallet_address);
     println!("worker_id: {}", summary.worker_id);
+    println!("network: {}", serde_name(&summary.network));
     println!("login: {}", summary.login);
     println!("daemon_running: {}", summary.daemon_running);
     println!("socket_path: {}", summary.socket_path);
@@ -40,8 +41,24 @@ pub(crate) fn print_doctor_report(report: &DoctorReport) {
         report.worker_id.clone().unwrap_or_else(|| "-".to_string())
     );
     println!(
+        "network: {}",
+        report
+            .network
+            .as_ref()
+            .map(serde_name)
+            .unwrap_or_else(|| "-".to_string())
+    );
+    println!(
         "login: {}",
         report.login.clone().unwrap_or_else(|| "-".to_string())
+    );
+    println!(
+        "requested_mode: {}",
+        report
+            .requested_mode
+            .as_ref()
+            .map(serde_name)
+            .unwrap_or_else(|| "-".to_string())
     );
     println!("daemon_running: {}", report.daemon_running);
     println!(
@@ -81,18 +98,22 @@ pub(crate) fn print_status(snapshot: MinerSnapshot, json: bool) {
         );
         return;
     }
+
     println!("state: {}", serde_name(&snapshot.state));
     println!("connected: {}", snapshot.connected);
     println!("pool: {}", snapshot.pool);
     println!("worker_name: {}", snapshot.worker_name);
+    println!("requested_mode: {}", serde_name(&snapshot.requested_mode));
+    println!("auto_state: {}", serde_name(&snapshot.auto_state));
     println!(
-        "mode: {}",
+        "auto_hold_reason: {}",
         snapshot
-            .current_mode
+            .auto_hold_reason
             .as_ref()
             .map(serde_name)
-            .unwrap_or_else(|| "custom_budget".to_string())
+            .unwrap_or_else(|| "-".to_string())
     );
+    print_budget("effective_budget", &snapshot.effective_budget);
     println!("hashrate: {:.2} H/s", snapshot.hashrate);
     println!("hashrate_5m: {:.2} H/s", snapshot.hashrate_5m);
     println!("accepted: {}", snapshot.accepted);
@@ -104,92 +125,23 @@ pub(crate) fn print_status(snapshot: MinerSnapshot, json: bool) {
     println!("reject_rate_5m: {:.4}", snapshot.reject_rate_5m);
     println!("reconnects: {}", snapshot.reconnects);
     println!("uptime_secs: {}", snapshot.uptime_secs);
+    println!("system_cpu_percent: {:.1}", snapshot.system_cpu_percent);
     println!(
-        "budget: threads={} cpu_percent={} priority={}",
-        snapshot.current_budget.threads,
-        snapshot.current_budget.cpu_percent,
-        serde_name(&snapshot.current_budget.priority)
+        "system_memory_percent: {:.1}",
+        snapshot.system_memory_percent
+    );
+    println!(
+        "system_cpu_percent_1m: {:.1}",
+        snapshot.system_cpu_percent_1m
+    );
+    println!(
+        "system_memory_percent_1m: {:.1}",
+        snapshot.system_memory_percent_1m
     );
     println!(
         "last_error: {}",
         snapshot.last_error.unwrap_or_else(|| "-".to_string())
     );
-}
-
-pub(crate) fn print_capabilities(caps: MinerCapabilities, json: bool) {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string(&caps).expect("encode capabilities json")
-        );
-        return;
-    }
-    println!("max_threads: {}", caps.max_threads);
-    println!(
-        "supported_modes: {}",
-        caps.supported_modes
-            .iter()
-            .map(serde_name)
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    println!(
-        "supported_priorities: {}",
-        caps.supported_priorities
-            .iter()
-            .map(serde_name)
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    println!("supports_cpu_percent: {}", caps.supports_cpu_percent);
-    println!("supports_priority: {}", caps.supports_priority);
-}
-
-pub(crate) fn print_methods(methods: AgentMethods, json: bool) {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string(&methods).expect("encode methods json")
-        );
-        return;
-    }
-    println!("agent_api_version: {}", methods.agent_api_version);
-    println!("agent_version: {}", methods.agent_version);
-    for (name, method) in methods.methods {
-        println!("{name}:");
-        match method.params {
-            Some(params) => {
-                for (field, schema) in params.fields {
-                    let mut line = format!(
-                        "  param {}: {}{}",
-                        field,
-                        schema.type_name,
-                        if schema.optional { "?" } else { "" }
-                    );
-                    if !schema.enum_values.is_empty() {
-                        line.push_str(&format!(" enum={:?}", schema.enum_values));
-                    }
-                    println!("{line}");
-                }
-            }
-            None => println!("  params: none"),
-        }
-        println!("  result: {}", method.result);
-    }
-}
-
-pub(crate) fn print_events_since(response: EventsSinceResponse, json: bool) {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string(&response).expect("encode events since json")
-        );
-        return;
-    }
-    println!("next_seq: {}", response.next_seq);
-    for envelope in response.events {
-        println!("#{} {}", envelope.seq, format_event(&envelope.event));
-    }
 }
 
 pub(crate) fn format_event(event: &MinerEvent) -> String {
@@ -201,34 +153,52 @@ pub(crate) fn format_event(event: &MinerEvent) -> String {
         | MinerEvent::Reconnecting { snapshot }
         | MinerEvent::BudgetChanged { snapshot }
         | MinerEvent::ShareAccepted { snapshot } => format!(
-            "{} state={} mode={} connected={} accepted={} rejected={} hashrate={:.2}",
+            "{} state={} requested_mode={} auto_state={} budget={} accepted={} rejected={} hashrate={:.2}",
             event_type(event),
             serde_name(&snapshot.state),
-            snapshot
-                .current_mode
-                .as_ref()
-                .map(serde_name)
-                .unwrap_or_else(|| "custom_budget".to_string()),
-            snapshot.connected,
+            serde_name(&snapshot.requested_mode),
+            serde_name(&snapshot.auto_state),
+            budget_summary(&snapshot.effective_budget),
             snapshot.accepted,
             snapshot.rejected,
-            snapshot.hashrate
+            snapshot.hashrate,
         ),
         MinerEvent::ShareRejected { snapshot, reason } => format!(
-            "{} state={} accepted={} rejected={} reason={}",
-            event_type(event),
+            "share_rejected state={} requested_mode={} auto_state={} budget={} reason={}",
             serde_name(&snapshot.state),
-            snapshot.accepted,
-            snapshot.rejected,
-            reason
+            serde_name(&snapshot.requested_mode),
+            serde_name(&snapshot.auto_state),
+            budget_summary(&snapshot.effective_budget),
+            reason,
         ),
         MinerEvent::Error { snapshot, message } => format!(
-            "{} state={} message={}",
-            event_type(event),
+            "error state={} requested_mode={} auto_state={} budget={} message={}",
             serde_name(&snapshot.state),
-            message
+            serde_name(&snapshot.requested_mode),
+            serde_name(&snapshot.auto_state),
+            budget_summary(&snapshot.effective_budget),
+            message,
         ),
     }
+}
+
+fn print_budget(label: &str, budget: &Budget) {
+    println!(
+        "{}: threads={} cpu_percent={} priority={}",
+        label,
+        budget.threads,
+        budget.cpu_percent,
+        serde_name(&budget.priority)
+    );
+}
+
+fn budget_summary(budget: &Budget) -> String {
+    format!(
+        "threads={} cpu_percent={} priority={}",
+        budget.threads,
+        budget.cpu_percent,
+        serde_name(&budget.priority)
+    )
 }
 
 fn event_type(event: &MinerEvent) -> &'static str {
@@ -245,7 +215,7 @@ fn event_type(event: &MinerEvent) -> &'static str {
     }
 }
 
-pub(crate) fn serde_name<T: serde::Serialize>(value: &T) -> String {
+fn serde_name<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value)
         .expect("encode serde name")
         .trim_matches('"')

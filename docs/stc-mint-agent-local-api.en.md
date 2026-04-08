@@ -1,236 +1,167 @@
 # `stc-mint-agent` Local API
 
-## 1. Goal
+## Scope
 
-The implemented surface is intentionally narrow:
+This document describes the currently supported local surfaces around `stc-mint-agent`:
 
-- `stc-mint-agent` is the only long-running daemon
-- `stc-mint-agentctl` is the only front-end
-- OpenClaw integrates through `stc-mint-agentctl mcp`
-- humans integrate through `stc-mint-agentctl` and `dashboard`
-- the user only cares about `wallet_address`
-- the default network is `main`
+- the public CLI exposed by `stc-mint-agentctl`
+- the MCP tool surface exposed by `stc-mint-agentctl integrate mcp`
+- the daemon-private Unix socket JSON-RPC
+- the stable status fields that local callers can rely on
 
-This document describes the current local API only. It does not cover subsidy, growth, agent-side `stratumd`, or remote operations.
+For the broader OpenClaw integration rationale, see `docs/stc-mint-agent-openclaw-integration.en.md`.
 
-For the best-practice organization, loop placement, install path, and OpenClaw adaptation boundary, see:
+## User model
 
-- `docs/stc-mint-agent-openclaw-integration.en.md`
+The public entrypoint is always `stc-mint-agentctl`.
 
-## 2. User Model
-
-The user only configures one thing:
-
-- `wallet_address`
-
-The system derives the rest internally:
-
-- create and persist a stable `worker_id`
-- compose the final login as `wallet_address.worker_id`
-- choose the default mainnet pool
-- choose the default `consensus_strategy`
-- auto-start `stc-mint-agent` when needed
-
-The user may change the payout address at any time:
-
-- only `wallet_address` changes
-- `worker_id` stays stable
-- if the daemon is running, the new login takes effect immediately through a managed restart
-
-Local persistent state stores only:
+The persisted user profile is owned by `stc-mint-agentctl`, not by the daemon. It contains:
 
 - `wallet_address`
 - `worker_id`
+- `requested_mode`
+- `network`
 
-There is no user-facing miner config file.
+Supported `network` values:
 
-## 3. Component Boundaries
+- `main`
+- `halley`
 
-### 3.1 `stc-mint-agent`
+The following values are derived inside the daemon and are not persisted:
 
-`stc-mint-agent` owns:
+- `login = wallet_address.worker_id`
+- `pool`
+- `pass`
+- `consensus_strategy`
 
-- the miner core
-- the JSON-RPC local API
-- the lifecycle state machine
-- status, trend metrics, and the event buffer
+## Public CLI
 
-It does not own:
+`stc-mint-agentctl` is the only public human/script entrypoint.
 
-- OpenClaw scheduling policy
-- user interaction
-- TUI
-- MCP
+### Wallet commands
 
-### 3.2 `stc-mint-agentctl`
+- `stc-mint-agentctl wallet set --wallet-address <addr> [--network main|halley]`
+- `stc-mint-agentctl wallet show`
 
-`stc-mint-agentctl` is the unified front-end with three entry forms:
+Semantics:
 
-- normal CLI
-- the `mcp` subcommand
-- the `dashboard` subcommand
+- `wallet set` is the only wallet write command
+- on first use it creates a stable `worker_id`
+- later calls update `wallet_address`
+- `worker_id` stays stable
+- `--network` defaults to `main` on first use; later omission keeps the current network
+- if the daemon is already running, `wallet set` reconfigures it immediately
 
-It talks to `stc-mint-agent` over the local Unix socket and auto-starts the daemon when needed.
+### Miner commands
 
-### 3.3 OpenClaw
+- `stc-mint-agentctl miner status`
+- `stc-mint-agentctl miner start`
+- `stc-mint-agentctl miner stop`
+- `stc-mint-agentctl miner pause`
+- `stc-mint-agentctl miner resume`
+- `stc-mint-agentctl miner set-mode <auto|conservative|idle|balanced|aggressive>`
+- `stc-mint-agentctl miner watch`
 
-OpenClaw does not talk to the miner directly and does not build raw CLI strings.
+Mode semantics:
 
-It registers:
+- `auto`
+  - keeps `requested_mode = auto`
+  - lets the daemon compute a finer-grained `effective_budget`
+  - does not expose internal governor knobs publicly
+- `conservative|idle|balanced|aggressive`
+  - fixed user-facing presets
+  - each maps to a fixed `effective_budget`
 
-- `stc-mint-agentctl mcp`
+`pause` and `stop` do not discard `auto`. They place auto into a held state. `resume` and `start` clear that hold.
 
-Then it calls the exposed MCP tools.
+### Integration commands
 
-Its role here is only the MCP host and tool caller. The best-practice placement of the main scheduling loop is covered by the dedicated integration document rather than repeated here.
+- `stc-mint-agentctl integrate doctor`
+- `stc-mint-agentctl integrate mcp-config`
+- `stc-mint-agentctl integrate mcp`
 
-## 4. MCP Tool Surface
+Semantics:
 
-`stc-mint-agentctl mcp` exposes only the safe tool surface:
+- `doctor` checks persisted wallet configuration, daemon reachability, and current runtime state
+- `mcp-config` prints the OpenClaw MCP registration snippet
+- `mcp` runs the stdio MCP server that OpenClaw launches
 
-- `setup`
-- `set_wallet`
-- `status`
-- `capabilities`
-- `methods`
-- `start`
-- `stop`
-- `pause`
-- `resume`
-- `set_mode`
-- `events_since`
+## MCP tool surface
+
+`stc-mint-agentctl integrate mcp` exposes these business tools:
+
+- `wallet_set`
+- `wallet_show`
+- `miner_status`
+- `miner_start`
+- `miner_stop`
+- `miner_pause`
+- `miner_resume`
+- `miner_set_mode`
 
 It does not expose:
 
 - raw `budget.set`
 - raw `events.stream`
-- pool, password, worker, or network selection
-
-### 4.1 `setup`
-
-Input:
-
-- `wallet_address`
-
-Effect:
-
-- persist the wallet address
-- create a stable `worker_id` if one does not exist yet
-- return the derived local config summary
-
-### 4.2 `set_wallet`
-
-Input:
-
-- `wallet_address`
-
-Effect:
-
-- update the wallet address
-- keep the same `worker_id`
-- if the daemon is running, restart it in a managed way so the new login takes effect immediately
-
-### 4.3 `set_mode`
-
-Only preset modes are allowed:
-
-- `conservative`
-- `idle`
-- `balanced`
-- `aggressive`
-
-The upper layer is not allowed to send raw budget values.
-
-## 5. CLI and TUI
-
-### 5.1 CLI
-
-The current human/script entrypoints are:
-
-- `setup --wallet-address ...`
-- `set-wallet --wallet-address ...`
-- `status`
-- `start`
-- `stop`
-- `pause`
-- `resume`
-- `set-mode <mode>`
 - `doctor`
 - `mcp-config`
+- daemon-private setup/reconfigure details
 
-`doctor` checks:
+CLI and MCP share the same underlying business commands. They are different transports, not different state machines.
 
-- whether the wallet is configured
-- whether `worker_id` exists
-- whether the daemon is reachable
-- current miner state and the last error
+## Daemon-private JSON-RPC
 
-`mcp-config` prints an MCP registration snippet that can be pasted into OpenClaw.
+`stc-mint-agent` serves a daemon-private Unix socket JSON-RPC. It is used by `stc-mint-agentctl`, the dashboard, and diagnostics.
 
-### 5.2 Dashboard
+Current methods:
 
-`stc-mint-agentctl dashboard` is the local human-facing TUI.
-
-v1 shows:
-
-- current state
-- connection state
-- hashrate / `hashrate_5m`
-- accepted / rejected / submitted
-- `reject_rate_5m`
-- current budget
-- recent events
-- the last error
-
-v1 operations:
-
-- `s` start
-- `x` stop
-- `p` pause
-- `r` resume
-- `1` conservative
-- `2` idle
-- `3` balanced
-- `4` aggressive
-- `w` update wallet address
-- `q` quit
-
-## 6. Daemon Auto-Start
-
-Before any MCP, CLI, or dashboard operation that needs a daemon, the front-end probes the local socket.
-
-If the daemon is missing:
-
-1. check whether `wallet_address` and `worker_id` are ready
-2. require `setup` if they are missing
-3. otherwise start `stc-mint-agent` automatically
-
-The startup arguments are derived internally:
-
-- default network = `main`
-- default pool = the mainnet pool
-- default `consensus_strategy` = the mainnet default algorithm
-- login = `wallet_address.worker_id`
-
-These details stay hidden from the user and from OpenClaw.
-
-## 7. Read Path
-
-### 7.1 Status
-
-The primary read methods are:
-
+- `daemon.configure`
+- `daemon.shutdown`
+- `miner.start`
+- `miner.stop`
+- `miner.pause`
+- `miner.resume`
+- `miner.set_mode`
 - `status.get`
 - `status.capabilities`
 - `status.methods`
+- `events.since`
+- `events.stream`
 
-`status.get` includes at least:
+`daemon.configure` is private. It accepts:
+
+- `wallet_address`
+- `worker_id`
+- `requested_mode`
+- `network`
+
+The daemon derives `login`, `pool`, `pass`, and `consensus_strategy` from that profile in memory.
+
+## Startup model
+
+`stc-mint-agent` starts blank. It does not accept public business arguments such as `--login` or `--pool`.
+
+For any `stc-mint-agentctl` command that needs the daemon:
+
+1. `ctl` loads the persisted profile
+2. if the daemon is missing, `ctl` starts a blank `stc-mint-agent`
+3. `ctl` calls `daemon.configure(profile)`
+4. `ctl` performs the requested business action
+
+If no persisted profile exists, `wallet set` must be run first.
+
+## Status model
+
+The main read model is `status.get`.
+
+Important fields:
 
 - `state`
 - `connected`
 - `pool`
 - `worker_name`
-- `current_mode`
+- `requested_mode`
+- `effective_budget`
 - `hashrate`
 - `hashrate_5m`
 - `accepted`
@@ -242,34 +173,44 @@ The primary read methods are:
 - `reject_rate_5m`
 - `reconnects`
 - `uptime_secs`
-- `current_budget`
+- `system_cpu_percent`
+- `system_memory_percent`
+- `system_cpu_percent_1m`
+- `system_memory_percent_1m`
+- `auto_state`
+- `auto_hold_reason`
 - `last_error`
 
-`current_mode` has fixed semantics:
+Semantics:
 
-- preset changes through `set_mode` return the active mode
-- raw `set-budget` switches into a custom budget and returns `null`
+- `requested_mode` is the user's chosen mode
+- `effective_budget` is the actual runtime budget now in effect
+- when `requested_mode = auto`, `effective_budget` may change over time
+- `auto_state` is one of `inactive`, `active`, or `held`
+- `auto_hold_reason` is present only when `auto_state = held`
 
-### 7.2 Events
+## TUI
 
-The main event method for OpenClaw is:
+`stc-mint-agentctl miner watch` is the human-facing dashboard.
 
-- `events.since`
+It shows:
 
-It returns:
+- miner state and connectivity
+- `requested_mode`
+- `effective_budget`
+- `auto_state`
+- current and 1-minute system CPU / memory usage
+- hashrate and trend counters
+- recent events
+- the last error
 
-- `next_seq`
-- `events`
+It supports:
 
-OpenClaw polls it in a request-response loop instead of relying on `events.stream`.
+- start
+- stop
+- pause
+- resume
+- mode changes
+- wallet updates
 
-`events.stream` remains available for human debugging and long-lived CLI listeners only.
-
-## 8. Current Constraints
-
-The current shape deliberately keeps these constraints:
-
-- the user flow is mainnet-only by default
-- `halley` is not exposed in the normal user path
-- OpenClaw does not set raw budget values
-- `stc-mint-agent` is the only long-running process; there is no second adapter daemon
+The TUI is only a local presentation and input layer over the same business commands.

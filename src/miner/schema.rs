@@ -49,6 +49,11 @@ pub fn build_agent_methods(capabilities: &MinerCapabilities) -> AgentMethods {
     let common_runtime_errors = vec![
         MethodErrorSchema {
             code: -32000,
+            kind: Some(AgentErrorKind::NotConfigured),
+            description: "daemon has not been configured yet".to_string(),
+        },
+        MethodErrorSchema {
+            code: -32000,
             kind: Some(AgentErrorKind::RuntimeFailed),
             description: "runtime failed while processing request".to_string(),
         },
@@ -64,6 +69,78 @@ pub fn build_agent_methods(capabilities: &MinerCapabilities) -> AgentMethods {
         },
     ];
     let mut methods = BTreeMap::new();
+    methods.insert(
+        "daemon.configure".to_string(),
+        MethodSpec {
+            params: Some(MethodParamsSchema {
+                kind: "object".to_string(),
+                fields: BTreeMap::from([
+                    (
+                        "wallet_address".to_string(),
+                        MethodFieldSchema {
+                            type_name: "string".to_string(),
+                            optional: false,
+                            minimum: None,
+                            maximum: None,
+                            enum_values: Vec::new(),
+                        },
+                    ),
+                    (
+                        "worker_id".to_string(),
+                        MethodFieldSchema {
+                            type_name: "string".to_string(),
+                            optional: false,
+                            minimum: None,
+                            maximum: None,
+                            enum_values: Vec::new(),
+                        },
+                    ),
+                    (
+                        "requested_mode".to_string(),
+                        MethodFieldSchema {
+                            type_name: "string".to_string(),
+                            optional: false,
+                            minimum: None,
+                            maximum: None,
+                            enum_values: capabilities
+                                .supported_modes
+                                .iter()
+                                .map(serde_name)
+                                .collect(),
+                        },
+                    ),
+                    (
+                        "network".to_string(),
+                        MethodFieldSchema {
+                            type_name: "string".to_string(),
+                            optional: false,
+                            minimum: None,
+                            maximum: None,
+                            enum_values: vec!["main".to_string(), "halley".to_string()],
+                        },
+                    ),
+                ]),
+            }),
+            result: "miner_snapshot".to_string(),
+            errors: vec![
+                MethodErrorSchema {
+                    code: -32602,
+                    kind: None,
+                    description: "invalid params".to_string(),
+                },
+                MethodErrorSchema {
+                    code: -32000,
+                    kind: Some(AgentErrorKind::InvalidConfig),
+                    description: "derived miner config was invalid".to_string(),
+                },
+                MethodErrorSchema {
+                    code: -32000,
+                    kind: Some(AgentErrorKind::RuntimeFailed),
+                    description: "runtime failed while processing request".to_string(),
+                },
+            ],
+        },
+    );
     methods.insert(
         "miner.start".to_string(),
         MethodSpec {
@@ -97,7 +174,7 @@ pub fn build_agent_methods(capabilities: &MinerCapabilities) -> AgentMethods {
         },
     );
     methods.insert(
-        "budget.set_mode".to_string(),
+        "miner.set_mode".to_string(),
         MethodSpec {
             params: Some(MethodParamsSchema {
                 kind: "object".to_string(),
@@ -125,75 +202,8 @@ pub fn build_agent_methods(capabilities: &MinerCapabilities) -> AgentMethods {
                 },
                 MethodErrorSchema {
                     code: -32000,
-                    kind: Some(AgentErrorKind::RuntimeFailed),
-                    description: "runtime failed while processing request".to_string(),
-                },
-                MethodErrorSchema {
-                    code: -32000,
-                    kind: Some(AgentErrorKind::RuntimeTerminated),
-                    description: "runtime terminated before request completed".to_string(),
-                },
-                MethodErrorSchema {
-                    code: -32000,
-                    kind: Some(AgentErrorKind::TransitionTimeout),
-                    description: "runtime state transition timed out".to_string(),
-                },
-            ],
-        },
-    );
-    methods.insert(
-        "budget.set".to_string(),
-        MethodSpec {
-            params: Some(MethodParamsSchema {
-                kind: "object".to_string(),
-                fields: BTreeMap::from([
-                    (
-                        "threads".to_string(),
-                        MethodFieldSchema {
-                            type_name: "u16".to_string(),
-                            optional: true,
-                            minimum: Some(1),
-                            maximum: Some(u64::from(capabilities.max_threads)),
-                            enum_values: Vec::new(),
-                        },
-                    ),
-                    (
-                        "cpu_percent".to_string(),
-                        MethodFieldSchema {
-                            type_name: "u8".to_string(),
-                            optional: true,
-                            minimum: Some(1),
-                            maximum: Some(100),
-                            enum_values: Vec::new(),
-                        },
-                    ),
-                    (
-                        "priority".to_string(),
-                        MethodFieldSchema {
-                            type_name: "string".to_string(),
-                            optional: true,
-                            minimum: None,
-                            maximum: None,
-                            enum_values: capabilities
-                                .supported_priorities
-                                .iter()
-                                .map(serde_name)
-                                .collect(),
-                        },
-                    ),
-                ]),
-            }),
-            result: "miner_snapshot".to_string(),
-            errors: vec![
-                MethodErrorSchema {
-                    code: -32602,
-                    kind: None,
-                    description: "invalid params".to_string(),
-                },
-                MethodErrorSchema {
-                    code: -32000,
-                    kind: Some(AgentErrorKind::InvalidBudget),
-                    description: "budget is outside supported limits".to_string(),
+                    kind: Some(AgentErrorKind::NotConfigured),
+                    description: "daemon has not been configured yet".to_string(),
                 },
                 MethodErrorSchema {
                     code: -32000,
@@ -273,7 +283,14 @@ pub fn build_agent_methods(capabilities: &MinerCapabilities) -> AgentMethods {
             }],
         },
     );
-
+    methods.insert(
+        "daemon.shutdown".to_string(),
+        MethodSpec {
+            params: None,
+            result: "shutdown_ack".to_string(),
+            errors: Vec::new(),
+        },
+    );
     AgentMethods {
         agent_api_version: AGENT_API_VERSION,
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -281,10 +298,10 @@ pub fn build_agent_methods(capabilities: &MinerCapabilities) -> AgentMethods {
     }
 }
 
-pub(crate) fn serde_name<T: Serialize>(value: &T) -> String {
+fn serde_name<T: Serialize>(value: &T) -> String {
     serde_json::to_value(value)
-        .expect("serialize agent schema enum")
+        .expect("encode enum value")
         .as_str()
-        .expect("agent schema enum should serialize to string")
+        .expect("enum should serialize to string")
         .to_string()
 }

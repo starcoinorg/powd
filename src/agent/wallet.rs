@@ -1,21 +1,17 @@
-use super::config::{
-    default_agent_name, default_keepalive_interval, default_main_pass, default_main_pool,
-    default_main_strategy, default_socket_path, default_state_path, default_status_interval,
-};
+use super::config::{build_miner_config, default_socket_path, default_state_path, MintProfile};
 use super::wallet_support::{
-    consensus_strategy_name, default_max_threads, generate_worker_id,
-    resolve_binary_from_current_exe, wait_for_daemon_ready, write_file_atomically, PersistedState,
+    profile_with_defaults, resolve_binary_from_current_exe, wait_for_daemon_ready,
+    write_file_atomically, DoctorReport, WalletAgentError, WalletConfigSummary,
 };
-pub(crate) use super::wallet_support::{DoctorReport, WalletAgentError, WalletConfigSummary};
 use super::{AgentClientError, AgentConnection};
 use crate::{
-    default_budget_for_mode, BudgetMode, EventsSinceResponse, MinerCapabilities, MinerConfig,
-    MinerSnapshot, MinerState, WalletAddress,
+    default_budget_for_mode, AutoHoldReason, AutoState, BudgetMode, EventsSinceResponse,
+    MinerSnapshot, MinerState, MintNetwork, WalletAddress,
 };
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct WalletAgent {
@@ -41,45 +37,20 @@ impl WalletAgent {
         }
     }
 
-    pub async fn capabilities(&self) -> Result<MinerCapabilities, WalletAgentError> {
-        match self.connect().await {
-            Ok(mut connection) => connection
-                .capabilities(self.timeout)
-                .await
-                .map_err(WalletAgentError::Rpc),
-            Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
-                Ok(self.local_config(None)?.capabilities())
-            }
-            Err(err) => Err(WalletAgentError::Rpc(err)),
-        }
-    }
-
-    pub async fn methods(&self) -> Result<Value, WalletAgentError> {
-        match self.connect().await {
-            Ok(mut connection) => connection
-                .call_value("status.methods", None, self.timeout)
-                .await
-                .map_err(WalletAgentError::Rpc),
-            Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
-                serde_json::to_value(self.local_config(None)?.methods())
-                    .map_err(WalletAgentError::StateParse)
-            }
-            Err(err) => Err(WalletAgentError::Rpc(err)),
-        }
-    }
-
     pub async fn status(&self) -> Result<MinerSnapshot, WalletAgentError> {
+        let profile = self
+            .load_profile_optional()?
+            .ok_or(WalletAgentError::NotConfigured)?;
         match self.connect().await {
-            Ok(mut connection) => connection
-                .status(self.timeout)
-                .await
-                .map_err(WalletAgentError::Rpc),
+            Ok(mut connection) => {
+                self.configure_connection(&mut connection, &profile).await?;
+                connection
+                    .status(self.timeout)
+                    .await
+                    .map_err(WalletAgentError::Rpc)
+            }
             Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
-                let profile = self.load_state_optional()?;
-                profile
-                    .map(|profile| self.synthetic_snapshot(Some(&profile)))
-                    .transpose()?
-                    .ok_or(WalletAgentError::NotConfigured)
+                self.synthetic_snapshot(&profile)
             }
             Err(err) => Err(WalletAgentError::Rpc(err)),
         }
@@ -94,34 +65,38 @@ impl WalletAgent {
     }
 
     pub async fn stop(&self) -> Result<MinerSnapshot, WalletAgentError> {
+        let profile = self
+            .load_profile_optional()?
+            .ok_or(WalletAgentError::NotConfigured)?;
         match self.connect().await {
-            Ok(mut connection) => connection
-                .call("miner.stop", None, self.timeout)
-                .await
-                .map_err(WalletAgentError::Rpc),
+            Ok(mut connection) => {
+                self.configure_connection(&mut connection, &profile).await?;
+                connection
+                    .call("miner.stop", None, self.timeout)
+                    .await
+                    .map_err(WalletAgentError::Rpc)
+            }
             Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
-                let profile = self.load_state_optional()?;
-                profile
-                    .map(|profile| self.synthetic_snapshot(Some(&profile)))
-                    .transpose()?
-                    .ok_or(WalletAgentError::NotConfigured)
+                self.synthetic_snapshot(&profile)
             }
             Err(err) => Err(WalletAgentError::Rpc(err)),
         }
     }
 
     pub async fn pause(&self) -> Result<MinerSnapshot, WalletAgentError> {
+        let profile = self
+            .load_profile_optional()?
+            .ok_or(WalletAgentError::NotConfigured)?;
         match self.connect().await {
-            Ok(mut connection) => connection
-                .call("miner.pause", None, self.timeout)
-                .await
-                .map_err(WalletAgentError::Rpc),
+            Ok(mut connection) => {
+                self.configure_connection(&mut connection, &profile).await?;
+                connection
+                    .call("miner.pause", None, self.timeout)
+                    .await
+                    .map_err(WalletAgentError::Rpc)
+            }
             Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
-                let profile = self.load_state_optional()?;
-                profile
-                    .map(|profile| self.synthetic_snapshot(Some(&profile)))
-                    .transpose()?
-                    .ok_or(WalletAgentError::NotConfigured)
+                self.synthetic_snapshot(&profile)
             }
             Err(err) => Err(WalletAgentError::Rpc(err)),
         }
@@ -129,40 +104,45 @@ impl WalletAgent {
 
     pub async fn resume(&self) -> Result<MinerSnapshot, WalletAgentError> {
         let mut connection = self.ensure_daemon().await?;
-        let snapshot: MinerSnapshot = connection
+        connection
             .call("miner.resume", None, self.timeout)
             .await
-            .map_err(WalletAgentError::Rpc)?;
-        if snapshot.state == MinerState::Stopped {
-            return connection
-                .call("miner.start", None, self.timeout)
-                .await
-                .map_err(WalletAgentError::Rpc);
-        }
-        Ok(snapshot)
+            .map_err(WalletAgentError::Rpc)
     }
 
     pub async fn set_mode(&self, mode: BudgetMode) -> Result<MinerSnapshot, WalletAgentError> {
-        let mut connection = self.ensure_daemon().await?;
-        connection
-            .call(
-                "budget.set_mode",
-                Some(json!({ "mode": mode })),
-                self.timeout,
-            )
-            .await
-            .map_err(WalletAgentError::Rpc)
+        let mut profile = self
+            .load_profile_optional()?
+            .ok_or(WalletAgentError::NotConfigured)?;
+        profile.requested_mode = mode;
+        self.save_profile(&profile)?;
+        match self.connect().await {
+            Ok(mut connection) => self.configure_connection(&mut connection, &profile).await,
+            Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
+                self.synthetic_snapshot(&profile)
+            }
+            Err(err) => Err(WalletAgentError::Rpc(err)),
+        }
     }
 
     pub async fn events_since(
         &self,
         since_seq: u64,
     ) -> Result<EventsSinceResponse, WalletAgentError> {
+        let Some(profile) = self.load_profile_optional()? else {
+            return Ok(EventsSinceResponse {
+                next_seq: 1,
+                events: Vec::new(),
+            });
+        };
         match self.connect().await {
-            Ok(mut connection) => connection
-                .events_since(since_seq, self.timeout)
-                .await
-                .map_err(WalletAgentError::Rpc),
+            Ok(mut connection) => {
+                self.configure_connection(&mut connection, &profile).await?;
+                connection
+                    .events_since(since_seq, self.timeout)
+                    .await
+                    .map_err(WalletAgentError::Rpc)
+            }
             Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
                 Ok(EventsSinceResponse {
                     next_seq: 1,
@@ -173,30 +153,34 @@ impl WalletAgent {
         }
     }
 
-    pub async fn setup(
+    pub async fn set_wallet(
         &self,
-        wallet_address: &str,
+        wallet_address: WalletAddress,
+        network: Option<MintNetwork>,
     ) -> Result<WalletConfigSummary, WalletAgentError> {
-        let profile = self.persist_wallet(wallet_address)?;
-        if self.daemon_running().await {
-            self.restart_daemon(&profile).await?;
+        let mut profile = self
+            .load_profile_optional()?
+            .unwrap_or_else(|| profile_with_defaults(wallet_address.clone()));
+        profile.wallet_address = wallet_address;
+        if let Some(network) = network {
+            profile.network = network;
+        }
+        self.save_profile(&profile)?;
+        if let Ok(mut connection) = self.connect().await {
+            self.configure_connection(&mut connection, &profile).await?;
         }
         self.summary(profile).await
     }
 
-    pub async fn update_wallet(
-        &self,
-        wallet_address: &str,
-    ) -> Result<WalletConfigSummary, WalletAgentError> {
-        let profile = self.persist_wallet(wallet_address)?;
-        if self.daemon_running().await {
-            self.restart_daemon(&profile).await?;
-        }
+    pub async fn show_wallet(&self) -> Result<WalletConfigSummary, WalletAgentError> {
+        let profile = self
+            .load_profile_optional()?
+            .ok_or(WalletAgentError::NotConfigured)?;
         self.summary(profile).await
     }
 
     pub async fn doctor(&self) -> Result<DoctorReport, WalletAgentError> {
-        let profile = self.load_state_optional()?;
+        let profile = self.load_profile_optional()?;
         match self.connect().await {
             Ok(mut connection) => {
                 let snapshot = connection
@@ -205,9 +189,13 @@ impl WalletAgent {
                     .map_err(WalletAgentError::Rpc)?;
                 Ok(DoctorReport {
                     wallet_configured: profile.is_some(),
-                    wallet_address: profile.as_ref().map(|state| state.wallet_address.clone()),
-                    worker_id: profile.as_ref().map(|state| state.worker_id.clone()),
-                    login: profile.as_ref().map(PersistedState::login),
+                    wallet_address: profile
+                        .as_ref()
+                        .map(|value| value.wallet_address.to_string()),
+                    worker_id: profile.as_ref().map(|value| value.worker_id.to_string()),
+                    network: profile.as_ref().map(|value| value.network),
+                    login: profile.as_ref().map(MintProfile::login_string),
+                    requested_mode: profile.as_ref().map(|value| value.requested_mode),
                     daemon_running: true,
                     current_state: Some(snapshot.state),
                     current_pool: Some(snapshot.pool),
@@ -220,9 +208,13 @@ impl WalletAgent {
             Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
                 Ok(DoctorReport {
                     wallet_configured: profile.is_some(),
-                    wallet_address: profile.as_ref().map(|state| state.wallet_address.clone()),
-                    worker_id: profile.as_ref().map(|state| state.worker_id.clone()),
-                    login: profile.as_ref().map(PersistedState::login),
+                    wallet_address: profile
+                        .as_ref()
+                        .map(|value| value.wallet_address.to_string()),
+                    worker_id: profile.as_ref().map(|value| value.worker_id.to_string()),
+                    network: profile.as_ref().map(|value| value.network),
+                    login: profile.as_ref().map(MintProfile::login_string),
+                    requested_mode: profile.as_ref().map(|value| value.requested_mode),
                     daemon_running: false,
                     current_state: None,
                     current_pool: None,
@@ -243,49 +235,30 @@ impl WalletAgent {
             "mcpServers": {
                 "stc-mint": {
                     "command": command,
-                    "args": ["mcp"],
+                    "args": ["integrate", "mcp"],
                 }
             }
         }))
     }
 
-    fn local_config(
-        &self,
-        profile: Option<&PersistedState>,
-    ) -> Result<MinerConfig, WalletAgentError> {
-        let login = match profile {
-            Some(profile) => profile
-                .login()
-                .parse()
-                .map_err(WalletAgentError::InvalidWallet)?,
-            None => "0x00000000000000000000000000000000.agent"
-                .parse()
-                .map_err(WalletAgentError::InvalidWallet)?,
-        };
-        Ok(MinerConfig {
-            pool: default_main_pool(),
-            login,
-            pass: default_main_pass(),
-            agent: default_agent_name(),
-            max_threads: default_max_threads(),
-            strategy: default_main_strategy(),
-            keepalive_interval: default_keepalive_interval(),
-            status_interval: default_status_interval(),
-            exit_after_accepted: None,
-        })
-    }
-
-    fn synthetic_snapshot(
-        &self,
-        profile: Option<&PersistedState>,
-    ) -> Result<MinerSnapshot, WalletAgentError> {
-        let config = self.local_config(profile)?;
+    fn synthetic_snapshot(&self, profile: &MintProfile) -> Result<MinerSnapshot, WalletAgentError> {
+        let derived = build_miner_config(profile).map_err(|source| WalletAgentError::Io {
+            context: "derive miner config from wallet profile",
+            source: std::io::Error::other(source.to_string()),
+        })?;
         Ok(MinerSnapshot {
             state: MinerState::Stopped,
             connected: false,
-            pool: config.pool,
-            worker_name: config.login.worker_name().to_string(),
-            current_mode: Some(BudgetMode::Conservative),
+            pool: derived.miner_config.pool,
+            worker_name: derived.miner_config.login.worker_name().to_string(),
+            requested_mode: profile.requested_mode,
+            effective_budget: default_budget_for_mode(
+                profile.requested_mode,
+                derived.miner_config.max_threads,
+                std::thread::available_parallelism()
+                    .map(|parallelism| parallelism.get())
+                    .unwrap_or(1),
+            ),
             hashrate: 0.0,
             hashrate_5m: 0.0,
             accepted: 0,
@@ -297,43 +270,34 @@ impl WalletAgent {
             reject_rate_5m: 0.0,
             reconnects: 0,
             uptime_secs: 0,
-            current_budget: default_budget_for_mode(
-                BudgetMode::Conservative,
-                config.max_threads,
-                1,
-            ),
+            system_cpu_percent: 0.0,
+            system_memory_percent: 0.0,
+            system_cpu_percent_1m: 0.0,
+            system_memory_percent_1m: 0.0,
+            auto_state: if profile.requested_mode == BudgetMode::Auto {
+                AutoState::Held
+            } else {
+                AutoState::Inactive
+            },
+            auto_hold_reason: if profile.requested_mode == BudgetMode::Auto {
+                Some(AutoHoldReason::NotRunning)
+            } else {
+                None
+            },
             last_error: None,
         })
     }
 
-    async fn summary(
-        &self,
-        profile: PersistedState,
-    ) -> Result<WalletConfigSummary, WalletAgentError> {
+    async fn summary(&self, profile: MintProfile) -> Result<WalletConfigSummary, WalletAgentError> {
         Ok(WalletConfigSummary {
-            wallet_address: profile.wallet_address.clone(),
-            worker_id: profile.worker_id.clone(),
-            login: profile.login(),
+            wallet_address: profile.wallet_address.to_string(),
+            worker_id: profile.worker_id.to_string(),
+            network: profile.network,
+            login: profile.login_string(),
             state_path: self.state_path.display().to_string(),
             socket_path: self.socket_path.display().to_string(),
             daemon_running: self.daemon_running().await,
         })
-    }
-
-    fn persist_wallet(&self, wallet_address: &str) -> Result<PersistedState, WalletAgentError> {
-        let wallet_address = WalletAddress::parse(wallet_address.to_string())
-            .map_err(WalletAgentError::InvalidWallet)?
-            .to_string();
-        let worker_id = self
-            .load_state_optional()?
-            .map(|state| state.worker_id)
-            .unwrap_or_else(generate_worker_id);
-        let state = PersistedState {
-            wallet_address,
-            worker_id,
-        };
-        self.save_state(&state)?;
-        Ok(state)
     }
 
     async fn daemon_running(&self) -> bool {
@@ -345,58 +309,44 @@ impl WalletAgent {
     }
 
     async fn ensure_daemon(&self) -> Result<AgentConnection, WalletAgentError> {
-        match self.connect().await {
-            Ok(connection) => Ok(connection),
+        let profile = self
+            .load_profile_optional()?
+            .ok_or(WalletAgentError::NotConfigured)?;
+        let mut connection = match self.connect().await {
+            Ok(connection) => connection,
             Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
-                let state = self
-                    .load_state_optional()?
-                    .ok_or(WalletAgentError::NotConfigured)?;
-                self.spawn_daemon(&state).await?;
-                self.connect().await.map_err(WalletAgentError::Rpc)
+                self.spawn_daemon().await?;
+                self.connect().await.map_err(WalletAgentError::Rpc)?
             }
-            Err(err) => Err(WalletAgentError::Rpc(err)),
-        }
+            Err(err) => return Err(WalletAgentError::Rpc(err)),
+        };
+        self.configure_connection(&mut connection, &profile).await?;
+        Ok(connection)
     }
 
-    async fn restart_daemon(&self, state: &PersistedState) -> Result<(), WalletAgentError> {
-        if let Ok(mut connection) = self.connect().await {
-            let _ = connection
-                .call_value("daemon.shutdown", None, self.timeout)
-                .await
-                .map_err(WalletAgentError::Rpc)?;
-            self.wait_for_daemon_stop().await?;
-        }
-        self.spawn_daemon(state).await
+    async fn configure_connection(
+        &self,
+        connection: &mut AgentConnection,
+        profile: &MintProfile,
+    ) -> Result<MinerSnapshot, WalletAgentError> {
+        connection
+            .call(
+                "daemon.configure",
+                Some(json!({
+                    "wallet_address": profile.wallet_address,
+                    "worker_id": profile.worker_id,
+                    "requested_mode": profile.requested_mode,
+                    "network": profile.network,
+                })),
+                self.timeout,
+            )
+            .await
+            .map_err(WalletAgentError::Rpc)
     }
 
-    async fn wait_for_daemon_stop(&self) -> Result<(), WalletAgentError> {
-        let start = Instant::now();
-        loop {
-            match self.connect().await {
-                Ok(_) => {}
-                Err(AgentClientError::Connect { .. } | AgentClientError::Timeout { .. }) => {
-                    return Ok(());
-                }
-                Err(err) => return Err(WalletAgentError::Rpc(err)),
-            }
-            if start.elapsed() >= self.timeout {
-                return Err(WalletAgentError::DaemonStopTimeout(self.timeout));
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    }
-
-    async fn spawn_daemon(&self, state: &PersistedState) -> Result<(), WalletAgentError> {
+    async fn spawn_daemon(&self) -> Result<(), WalletAgentError> {
         let bin = resolve_binary_from_current_exe("stc-mint-agent")?;
         let mut child = Command::new(bin)
-            .arg("--pool")
-            .arg(default_main_pool())
-            .arg("--login")
-            .arg(state.login())
-            .arg("--pass")
-            .arg(default_main_pass())
-            .arg("--consensus-strategy")
-            .arg(consensus_strategy_name(default_main_strategy()))
             .arg("--socket")
             .arg(&self.socket_path)
             .stdout(Stdio::null())
@@ -408,9 +358,9 @@ impl WalletAgent {
         Ok(())
     }
 
-    fn load_state_optional(&self) -> Result<Option<PersistedState>, WalletAgentError> {
+    fn load_profile_optional(&self) -> Result<Option<MintProfile>, WalletAgentError> {
         match std::fs::read(&self.state_path) {
-            Ok(bytes) => serde_json::from_slice::<PersistedState>(&bytes)
+            Ok(bytes) => serde_json::from_slice::<MintProfile>(&bytes)
                 .map(Some)
                 .map_err(WalletAgentError::StateParse),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -421,14 +371,14 @@ impl WalletAgent {
         }
     }
 
-    fn save_state(&self, state: &PersistedState) -> Result<(), WalletAgentError> {
+    fn save_profile(&self, profile: &MintProfile) -> Result<(), WalletAgentError> {
         if let Some(parent) = self.state_path.parent() {
             std::fs::create_dir_all(parent).map_err(|source| WalletAgentError::Io {
-                context: "create state directory",
+                context: "create state parent",
                 source,
             })?;
         }
-        let encoded = serde_json::to_vec_pretty(state).map_err(WalletAgentError::StateParse)?;
+        let encoded = serde_json::to_vec_pretty(profile).map_err(WalletAgentError::StateParse)?;
         write_file_atomically(&self.state_path, &encoded).map_err(|source| WalletAgentError::Io {
             context: "write state file",
             source,
@@ -438,54 +388,84 @@ impl WalletAgent {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::WalletAgent;
+    use crate::{MintNetwork, WalletAddress};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn temp_path(label: &str) -> PathBuf {
+    fn temp_path(label: &str, suffix: &str) -> std::path::PathBuf {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |value| value.as_nanos());
         std::env::temp_dir().join(format!(
-            "stc-mint-agent-{label}-{}-{now}.json",
+            "stc-mint-agent-{label}-{}-{now}.{suffix}",
             std::process::id()
         ))
     }
 
     #[tokio::test]
-    async fn setup_and_update_wallet_keep_worker_id() {
-        let socket_path = temp_path("socket");
-        let state_path = temp_path("state");
+    async fn set_wallet_keeps_worker_id_and_network_defaults() {
+        let socket_path = temp_path("wallet-socket", "sock");
+        let state_path = temp_path("wallet-state", "json");
         let agent =
             WalletAgent::with_paths(socket_path, state_path.clone(), Duration::from_secs(1));
 
         let first = agent
-            .setup("0x11111111111111111111111111111111")
+            .set_wallet(
+                WalletAddress::parse("0x11111111111111111111111111111111").unwrap(),
+                None,
+            )
             .await
-            .expect("setup should succeed");
+            .expect("wallet set should succeed");
         let second = agent
-            .update_wallet("0x22222222222222222222222222222222")
+            .set_wallet(
+                WalletAddress::parse("0x22222222222222222222222222222222").unwrap(),
+                None,
+            )
             .await
-            .expect("update_wallet should succeed");
-
+            .expect("wallet update should succeed");
         assert_eq!(first.worker_id, second.worker_id);
-        assert_ne!(first.wallet_address, second.wallet_address);
+        assert_eq!(second.network, MintNetwork::Main);
 
-        let persisted: PersistedState =
-            serde_json::from_slice(&std::fs::read(&state_path).expect("read state file"))
-                .expect("parse state file");
-        assert_eq!(persisted.wallet_address, second.wallet_address);
-        assert_eq!(persisted.worker_id, second.worker_id);
+        let _ = std::fs::remove_file(state_path);
+    }
+
+    #[tokio::test]
+    async fn set_wallet_can_change_network_without_replacing_worker_id() {
+        let socket_path = temp_path("wallet-socket-network", "sock");
+        let state_path = temp_path("wallet-state-network", "json");
+        let agent =
+            WalletAgent::with_paths(socket_path, state_path.clone(), Duration::from_secs(1));
+
+        let first = agent
+            .set_wallet(
+                WalletAddress::parse("0x11111111111111111111111111111111").unwrap(),
+                None,
+            )
+            .await
+            .expect("wallet set should succeed");
+        let second = agent
+            .set_wallet(
+                WalletAddress::parse("0x11111111111111111111111111111111").unwrap(),
+                Some(MintNetwork::Halley),
+            )
+            .await
+            .expect("wallet set should update network");
+        assert_eq!(first.worker_id, second.worker_id);
+        assert_eq!(second.network, MintNetwork::Halley);
+
         let _ = std::fs::remove_file(state_path);
     }
 
     #[test]
     fn mcp_config_points_to_agentctl_mcp_command() {
-        let agent = WalletAgent::with_paths(
-            PathBuf::from("/tmp/stc-mint.sock"),
-            temp_path("state"),
-            Duration::from_secs(1),
-        );
+        let socket_path = temp_path("mcp-config-socket", "sock");
+        let state_path = temp_path("mcp-config-state", "json");
+        let agent = WalletAgent::with_paths(socket_path, state_path, Duration::from_secs(1));
+
         let config = agent.mcp_config().expect("mcp_config should succeed");
-        assert_eq!(config["mcpServers"]["stc-mint"]["args"], json!(["mcp"]));
+        assert_eq!(
+            config["mcpServers"]["stc-mint"]["args"],
+            serde_json::json!(["integrate", "mcp"])
+        );
     }
 }

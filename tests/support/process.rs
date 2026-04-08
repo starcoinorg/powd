@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use std::net::{Ipv4Addr, SocketAddr};

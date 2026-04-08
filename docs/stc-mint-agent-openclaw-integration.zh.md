@@ -1,174 +1,136 @@
 # `stc-mint-agent` 与 OpenClaw 集成
 
-## 1. 文档目的
+## 目的
 
-这份文档只回答一组组织问题：
+这份文档固定第三方接入 OpenClaw 时的支持边界：
 
-- 动态调度 loop 应该放哪里
-- OpenClaw 应该通过什么方式接入
-- 用户安装路径应该怎样收口
-- 为什么要这样组织
+- 主调度 loop 放哪里
+- 在不改 OpenClaw 源码的前提下怎么接
+- 包怎么安装和交付给用户
+- 为什么这样组织
 
-这是一份**目标组织文档**，不是当前本地接口逐项参考。接口细节仍看：
+它是集成最佳实践的权威文档。具体命令和 API 参考见 `docs/stc-mint-agent-local-api.zh.md`。
 
-- `docs/stc-mint-agent-local-api.zh.md`
+## 最终组织
 
-## 2. 最终结论
+支持的形态只有三类职责：
 
-最佳实践收成四条：
+- `stc-mint-agent`
+  - 唯一 daemon
+  - 持有活跃 miner runtime、本地 API、event history 和内部 auto loop
+- `stc-mint-agentctl`
+  - 唯一公开前端
+  - 持有持久化用户 profile、CLI、TUI 和 MCP bridge
+- OpenClaw
+  - 注册 MCP bridge
+  - 调用 MCP tools
+  - 提供更高层 UX
 
-- `stc-mint-agent` 是唯一长期持有业务状态的 daemon
-- 动态调度 loop 放在 `stc-mint-agent` 内部的 `governor`
-- OpenClaw 通过 `stc-mint-agentctl mcp` 这个 **stdio MCP** 入口接入
-- `skill` / `plugin` 只做发现、安装和使用引导，不承载业务主循环
+这也明确否定几种方案：
 
-不采用这些方案：
+- 为了基础集成去改 OpenClaw 源码
+- 把主调度 loop 放进 skill prompt
+- 把主调度 loop 放进 OpenClaw plugin 代码
+- 在 `stc-mint-agent` 之外再加第二个 adapter daemon
 
-- 不要求修改 OpenClaw 源码
-- 不把主 loop 放进 OpenClaw 内部代码
-- 不把主 loop 写进 skill prompt
-- 不再新增第二个 adapter daemon
+## 为什么 loop 放在 daemon
 
-## 3. 组件组织
+主 loop 应该放在 `stc-mint-agent`，因为 daemon 已经持有长期运行时关注点：
 
-### 3.1 `stc-mint-agent`
+- 当前活跃 miner runtime
+- reconnect 和 runtime 状态迁移
+- event buffer
+- 趋势指标
+- 当前真实生效的运行预算
 
-`stc-mint-agent` 持有：
+这条 loop 是确定性代码，不是 LLM prompt loop。
 
-- miner core
-- `wallet_address`
-- 稳定 `worker_id`
-- 派生 login：`wallet_address.worker_id`
-- runtime 状态、趋势指标、事件缓冲
-- `governor` 调度状态
+`stc-mint-agentctl` 负责用户意图和引导启动，但真正长期执行 miner 的还是 daemon。本地策略因此在 OpenClaw 关闭时仍然成立。
 
-`governor` 是 daemon 内部的确定性调度子系统。它负责：
+## 适配路径
 
-- 周期采样系统负载和 miner 健康状态
-- 决定 `conservative / idle / balanced / aggressive`
-- 维护升降档冷却和冻结状态
-- 在用户手动 override 后暂停自动调度
+OpenClaw 的正式入口固定为：
 
-### 3.2 `stc-mint-agentctl`
+- `stc-mint-agentctl integrate mcp`
 
-`stc-mint-agentctl` 是统一前端，只承担三类事情：
+这个命令启动 stdio MCP server。
 
-- 人类 CLI
-- `dashboard` TUI
-- `mcp` bridge
+OpenClaw 只需要注册这个命令，不需要理解 daemon 私有 socket 协议。
 
-它不持有第二份业务状态，不运行第二个调度 loop。
+MCP bridge 只暴露公开业务工具：
 
-### 3.3 OpenClaw
+- `wallet_set`
+- `wallet_show`
+- `miner_status`
+- `miner_start`
+- `miner_stop`
+- `miner_pause`
+- `miner_resume`
+- `miner_set_mode`
 
-OpenClaw 作为宿主，只负责：
+它故意隐藏：
 
-- 注册 `stc-mint-agentctl mcp`
-- 调用 MCP tools
-- 展示状态
-- 做手动 override
-- 通过 skill / plugin 改善发现和 UX
+- `daemon.configure`
+- 原始 `budget.set`
+- 原始 event stream
+- pool / pass / worker / strategy 细节
+- 只对安装或诊断有意义的命令
 
-OpenClaw 不需要改源码，也不需要承担 miner 的长期业务状态。
+## 面向用户的安装路径
 
-## 4. loop 为什么放在 daemon 里
-
-主 loop 放在 `stc-mint-agent` 而不是 OpenClaw，有四个原因：
-
-- 第三方接入不能假设能长期修改和维护 OpenClaw 源码
-- `wallet_address`、`worker_id`、login、矿池连接和事件缓冲都已经在 daemon 内，loop 贴着这些状态最自然
-- `skill` 是提示层，`plugin` 是接入层，它们都不适合承载需要持久状态和冷却逻辑的业务循环
-- 用户关闭 OpenClaw 之后，miner 仍应保持稳定的本地策略，而不是失去调度能力
-
-OpenClaw 仍然有价值，但角色收窄为：
-
-- 本地 MCP 客户端
-- 用户入口
-- 手动 override 和可视化入口
-
-## 5. 安装与分发
-
-面向用户的 v1 分发物固定为三个 binary：
+面向用户的包包含：
 
 - `stc-mint-miner`
 - `stc-mint-agent`
 - `stc-mint-agentctl`
 
-用户路径固定为 wallet-first：
+正常安装路径是：
 
-1. 安装发行包
-2. 执行一次：
-   - `stc-mint-agentctl setup --wallet-address <addr>`
-3. 如需 OpenClaw，执行：
-   - `stc-mint-agentctl mcp-config`
-4. 把生成的 MCP 配置注册到 OpenClaw
-5. 日常使用：
-   - OpenClaw 调 MCP
-   - 或 `stc-mint-agentctl dashboard`
+1. 安装包
+2. 配置一次钱包：
+   - `stc-mint-agentctl wallet set --wallet-address <addr> [--network main|halley]`
+3. 如果要接 OpenClaw，则输出 MCP 片段：
+   - `stc-mint-agentctl integrate mcp-config`
+4. 在 OpenClaw 里注册这个 MCP command
+5. 之后通过以下入口使用：
+   - OpenClaw tools
+   - 或 `stc-mint-agentctl miner watch`
 
-用户默认只关心：
+默认值：
 
-- `wallet_address`
+- `network = main`
+- 首次 `wallet set` 自动生成 `worker_id`
+- 首次 `wallet set` 默认 `requested_mode = auto`
 
-系统自动处理：
+用户不需要管理：
 
-- 默认 network = `main`
-- 默认 pool = mainnet pool
-- 默认算法 = mainnet 默认算法
-- 自动生成稳定 `worker_id`
-- 自动派生 login
-- daemon 不在时自动拉起
+- `login`
+- `pool`
+- `pass`
+- `consensus_strategy`
 
-用户修改收款地址时：
+## 钱包更新
 
-- 只改 `wallet_address`
-- `worker_id` 保持不变
-- 新 login 立即通过热切换或受控重启生效
+修改收款地址是正常支持路径的一部分。
 
-## 6. OpenClaw 适配方式
+用户再次执行 `wallet set` 时：
 
-OpenClaw 的正式适配面固定为：
+- 更新 `wallet_address`
+- `worker_id` 保持稳定
+- 只有显式传 `--network` 时才改变 `network`
+- 如果 daemon 已运行，`ctl` 通过私有 API 立即重配它
+- daemon 在这次重配前后保持原运行意图
 
-- `stc-mint-agentctl mcp`
+## 为什么这是最佳边界
 
-这是一个 stdio MCP server。OpenClaw 只需要注册它，不需要理解 miner 内部协议。
+这个组织方式把边界收得很清楚：
 
-MCP 对外只暴露安全工具：
+- `ctl` 持有用户意图和持久化 profile
+- daemon 持有运行时执行和自动预算控制
+- OpenClaw 通过 MCP 使用宿主已经支持的边界
 
-- `setup`
-- `set_wallet`
-- `status`
-- `capabilities`
-- `methods`
-- `start`
-- `stop`
-- `pause`
-- `resume`
-- `set_mode`
-- `events_since`
-- 后续 governor 只暴露治理相关工具，不直接暴露原始 `budget.set`
+这样第三方集成才现实：
 
-`skill` 和 `plugin` 的角色固定为可选增强：
-
-- `skill`：教模型何时调用哪些 MCP tools
-- `plugin`：帮用户自动注册 MCP、暴露更好的 UI 或安装引导
-
-它们都不应该持有 miner 主状态，也不应该跑业务主 loop。
-
-## 7. 面向用户的最终体验
-
-用户最终看到的产品心智应当只有两条：
-
-- 给我一个 `wallet_address`
-- 默认跑 main，其他我不用管
-
-人工用户主要用：
-
-- `stc-mint-agentctl dashboard`
-- 少量 CLI 命令
-
-OpenClaw 用户主要用：
-
-- 已注册的 MCP tools
-
-两条路径共享同一个 daemon、同一份状态和同一套调度规则。
+- 不依赖 OpenClaw 源码
+- 不需要第二个长期运行的 adapter 进程
+- 不会让 `ctl` 持久化一套业务配置、daemon 启动参数又重复一套

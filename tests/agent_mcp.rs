@@ -1,14 +1,15 @@
-mod support;
+#[path = "support/process_mcp.rs"]
+mod process;
 
 use anyhow::{Context, Result};
+use process::{resolve_stc_mint_agentctl_bin, temp_test_path, TEST_MUTEX};
 use serde_json::{json, Value};
 use std::path::PathBuf;
-use support::process::{resolve_stc_mint_agentctl_bin, temp_test_path, TEST_MUTEX};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn agent_mcp_lists_safe_tools_and_supports_setup_then_status() -> Result<()> {
+async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let state_path = temp_test_path("mcp-state", "json");
@@ -41,17 +42,14 @@ async fn agent_mcp_lists_safe_tools_and_supports_setup_then_status() -> Result<(
     assert_eq!(
         names,
         vec![
-            "setup",
-            "set_wallet",
-            "status",
-            "capabilities",
-            "methods",
-            "start",
-            "stop",
-            "pause",
-            "resume",
-            "set_mode",
-            "events_since",
+            "wallet_set",
+            "wallet_show",
+            "miner_status",
+            "miner_start",
+            "miner_stop",
+            "miner_pause",
+            "miner_resume",
+            "miner_set_mode",
         ]
     );
 
@@ -60,7 +58,7 @@ async fn agent_mcp_lists_safe_tools_and_supports_setup_then_status() -> Result<(
             3,
             "tools/call",
             json!({
-                "name": "setup",
+                "name": "wallet_set",
                 "arguments": {
                     "wallet_address": "0x44444444444444444444444444444444"
                 }
@@ -71,55 +69,74 @@ async fn agent_mcp_lists_safe_tools_and_supports_setup_then_status() -> Result<(
         setup["result"]["structuredContent"]["wallet_address"],
         "0x44444444444444444444444444444444"
     );
+    assert_eq!(setup["result"]["structuredContent"]["network"], "main");
 
-    let status = client
+    let show = client
         .request(
             4,
             "tools/call",
             json!({
-                "name": "status",
+                "name": "wallet_show",
+                "arguments": {}
+            }),
+        )
+        .await?;
+    assert_eq!(
+        show["result"]["structuredContent"]["wallet_address"],
+        "0x44444444444444444444444444444444"
+    );
+
+    let status = client
+        .request(
+            5,
+            "tools/call",
+            json!({
+                "name": "miner_status",
                 "arguments": {}
             }),
         )
         .await?;
     assert_eq!(status["result"]["structuredContent"]["state"], "stopped");
     assert_eq!(
-        status["result"]["structuredContent"]["current_mode"],
-        "conservative"
+        status["result"]["structuredContent"]["requested_mode"],
+        "auto"
     );
-    assert_eq!(
-        status["result"]["structuredContent"]["current_budget"]["cpu_percent"],
-        50
-    );
+    assert_eq!(status["result"]["structuredContent"]["auto_state"], "held");
 
-    let capabilities = client
-        .request(
-            5,
-            "tools/call",
-            json!({
-                "name": "capabilities",
-                "arguments": {}
-            }),
-        )
-        .await?;
-    assert_eq!(
-        capabilities["result"]["structuredContent"]["supported_modes"],
-        json!(["conservative", "idle", "balanced", "aggressive"])
-    );
-
-    let methods = client
+    let mode = client
         .request(
             6,
             "tools/call",
             json!({
-                "name": "methods",
-                "arguments": {}
+                "name": "miner_set_mode",
+                "arguments": { "mode": "auto" }
             }),
         )
         .await?;
     assert_eq!(
-        methods["result"]["structuredContent"]["agent_api_version"],
-        1
+        mode["result"]["structuredContent"]["requested_mode"],
+        "auto"
+    );
+
+    let set_wallet = client
+        .request(
+            7,
+            "tools/call",
+            json!({
+                "name": "wallet_set",
+                "arguments": {
+                    "wallet_address": "0x55555555555555555555555555555555"
+                }
+            }),
+        )
+        .await?;
+    assert_eq!(
+        set_wallet["result"]["structuredContent"]["wallet_address"],
+        "0x55555555555555555555555555555555"
+    );
+    assert_eq!(
+        set_wallet["result"]["structuredContent"]["worker_id"],
+        setup["result"]["structuredContent"]["worker_id"]
     );
 
     let _ = child.kill().await;
@@ -133,12 +150,13 @@ async fn spawn_mcp(state_path: &PathBuf, socket_path: &PathBuf) -> Result<Child>
         .env("STC_MINT_AGENT_STATE_PATH", state_path)
         .arg("--socket")
         .arg(socket_path)
+        .arg("integrate")
         .arg("mcp")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .context("spawn stc-mint-agentctl mcp failed")?;
+        .context("spawn stc-mint-agentctl integrate mcp failed")?;
     Ok(child)
 }
 

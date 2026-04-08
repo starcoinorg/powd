@@ -1,13 +1,17 @@
-use crate::{default_budget_for_mode, Budget, BudgetMode, MinerConfig, StratumLogin};
+use crate::{
+    default_budget_for_mode, Budget, BudgetMode, ConfigError, MinerConfig, MintNetwork,
+    StratumLogin, WalletAddress, WorkerId,
+};
 use anyhow::{Context, Result};
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 use starcoin_types::genesis_config::ConsensusStrategy;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::time::Duration;
 
 const DEFAULT_MAIN_POOL: &str = "main-stratum.starcoin.org:9888";
-const DEFAULT_MAIN_PASS: &str = "x";
+const DEFAULT_HALLEY_POOL: &str = "halley-stratum.starcoin.org:9888";
+const DEFAULT_PASS: &str = "x";
 const DEFAULT_AGENT_NAME: &str = "stc-mint-agent";
 const DEFAULT_KEEPALIVE_INTERVAL_SECS: u64 = 30;
 const DEFAULT_STATUS_INTERVAL_SECS: u64 = 10;
@@ -15,85 +19,146 @@ const DEFAULT_STATUS_INTERVAL_SECS: u64 = 10;
 #[derive(Parser, Debug)]
 #[command(
     name = "stc-mint-agent",
-    after_help = "Runtime defaults:\n  Initial mode when the daemon starts: conservative\n  conservative = threads=1, cpu_percent=50, priority=background\n  Preset modes can be changed later via stc-mint-agentctl set-mode."
+    about = "Internal daemon for stc-mint-agentctl. Normally started automatically.",
+    after_help = "This is the internal daemon binary. Use `stc-mint-agentctl wallet set` for first-time configuration, then drive miner start, mode changes, dashboard, and OpenClaw MCP integration through `stc-mint-agentctl`."
 )]
 pub struct AgentArgs {
-    #[arg(
-        long,
-        help = "Stratum pool endpoint, for example main-stratum.starcoin.org:9888"
-    )]
-    pub pool: String,
-    #[arg(long, help = "Stratum login in wallet.worker form")]
-    pub login: String,
-    #[arg(long, default_value = "x", help = "Stratum password field")]
-    pub pass: String,
-    #[arg(
-        long,
-        default_value = DEFAULT_AGENT_NAME,
-        help = "Agent string sent during login"
-    )]
-    pub agent: String,
-    #[arg(long, help = "Maximum worker threads the daemon may ever use")]
-    pub max_threads: Option<usize>,
-    #[arg(
-        long,
-        value_enum,
-        default_value_t = CliConsensusStrategy::Cryptonight,
-        help = "Consensus strategy used to solve shares"
-    )]
-    pub consensus_strategy: CliConsensusStrategy,
-    #[arg(
-        long,
-        default_value_t = DEFAULT_KEEPALIVE_INTERVAL_SECS,
-        help = "Keepalive interval in seconds"
-    )]
-    pub keepalive_interval_secs: u64,
-    #[arg(
-        long,
-        default_value_t = DEFAULT_STATUS_INTERVAL_SECS,
-        help = "Status log interval in seconds"
-    )]
-    pub status_interval_secs: u64,
     #[arg(long, help = "Unix socket path for the local API")]
     pub socket: Option<PathBuf>,
 }
 
-#[derive(clap::ValueEnum, Clone, Copy, Debug)]
-pub enum CliConsensusStrategy {
-    Dummy,
-    Argon,
-    Keccak,
-    Cryptonight,
-}
-
 pub struct AgentConfig {
     pub socket_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct MintProfile {
+    pub wallet_address: WalletAddress,
+    pub worker_id: WorkerId,
+    #[serde(default = "default_requested_mode")]
+    pub requested_mode: BudgetMode,
+    #[serde(default = "default_network")]
+    pub network: MintNetwork,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DerivedMinerConfig {
     pub miner_config: MinerConfig,
     pub initial_budget: Budget,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct NetworkDefaults {
+    pub pool: String,
+    pub pass: String,
+    pub strategy: ConsensusStrategy,
+}
+
 impl AgentArgs {
-    pub fn into_config(self) -> Result<AgentConfig> {
-        let socket_path = self.socket.unwrap_or_else(default_socket_path);
-        let login: StratumLogin = self.login.parse().with_context(|| "parse --login failed")?;
-        let max_threads = parse_max_threads(self.max_threads.unwrap_or_else(default_threads))?;
-        let miner_config = MinerConfig {
-            pool: self.pool,
-            login,
-            pass: self.pass,
-            agent: self.agent,
-            max_threads,
-            strategy: self.consensus_strategy.into(),
-            keepalive_interval: Duration::from_secs(self.keepalive_interval_secs),
-            status_interval: Duration::from_secs(self.status_interval_secs),
-            exit_after_accepted: None,
-        };
-        Ok(AgentConfig {
-            socket_path,
-            initial_budget: default_initial_budget(max_threads),
-            miner_config,
-        })
+    pub fn into_config(self) -> AgentConfig {
+        AgentConfig {
+            socket_path: self.socket.unwrap_or_else(default_socket_path),
+        }
     }
+}
+
+impl MintProfile {
+    pub fn login_string(&self) -> String {
+        format!("{}.{}", self.wallet_address, self.worker_id)
+    }
+
+    pub fn login(&self) -> StratumLogin {
+        self.login_string()
+            .parse()
+            .expect("persisted wallet_address.worker_id should form a valid stratum login")
+    }
+}
+
+pub(crate) fn build_miner_config(
+    profile: &MintProfile,
+) -> std::result::Result<DerivedMinerConfig, ConfigError> {
+    let defaults = network_defaults(profile.network);
+    let max_threads = default_max_threads();
+    let miner_config = MinerConfig {
+        pool: defaults.pool,
+        login: profile.login(),
+        pass: defaults.pass,
+        agent: default_agent_name(),
+        max_threads,
+        strategy: defaults.strategy,
+        keepalive_interval: default_keepalive_interval(),
+        status_interval: default_status_interval(),
+        exit_after_accepted: None,
+    };
+    miner_config.validate()?;
+    Ok(DerivedMinerConfig {
+        initial_budget: default_budget_for_mode(
+            profile.requested_mode,
+            max_threads,
+            logical_cpus(),
+        ),
+        miner_config,
+    })
+}
+
+pub(crate) fn network_defaults(network: MintNetwork) -> NetworkDefaults {
+    match network {
+        MintNetwork::Main => NetworkDefaults {
+            pool: std::env::var("STC_MINT_AGENT_MAIN_POOL")
+                .unwrap_or_else(|_| DEFAULT_MAIN_POOL.to_string()),
+            pass: std::env::var("STC_MINT_AGENT_MAIN_PASS")
+                .unwrap_or_else(|_| DEFAULT_PASS.to_string()),
+            strategy: std::env::var("STC_MINT_AGENT_MAIN_STRATEGY")
+                .ok()
+                .and_then(|value| parse_strategy(&value))
+                .unwrap_or(ConsensusStrategy::CryptoNight),
+        },
+        MintNetwork::Halley => NetworkDefaults {
+            pool: std::env::var("STC_MINT_AGENT_HALLEY_POOL")
+                .unwrap_or_else(|_| DEFAULT_HALLEY_POOL.to_string()),
+            pass: std::env::var("STC_MINT_AGENT_HALLEY_PASS")
+                .unwrap_or_else(|_| DEFAULT_PASS.to_string()),
+            strategy: std::env::var("STC_MINT_AGENT_HALLEY_STRATEGY")
+                .ok()
+                .and_then(|value| parse_strategy(&value))
+                .unwrap_or(ConsensusStrategy::CryptoNight),
+        },
+    }
+}
+
+pub(crate) fn default_requested_mode() -> BudgetMode {
+    BudgetMode::Auto
+}
+
+pub(crate) fn default_network() -> MintNetwork {
+    MintNetwork::Main
+}
+
+pub(crate) fn default_max_threads() -> u16 {
+    let threads = logical_cpus().div_ceil(2).max(1);
+    u16::try_from(threads).unwrap_or(u16::MAX)
+}
+
+pub(crate) fn default_agent_name() -> String {
+    std::env::var("STC_MINT_AGENT_AGENT").unwrap_or_else(|_| DEFAULT_AGENT_NAME.to_string())
+}
+
+pub(crate) fn default_keepalive_interval() -> Duration {
+    Duration::from_secs(
+        std::env::var("STC_MINT_AGENT_KEEPALIVE_INTERVAL_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_KEEPALIVE_INTERVAL_SECS),
+    )
+}
+
+pub(crate) fn default_status_interval() -> Duration {
+    Duration::from_secs(
+        std::env::var("STC_MINT_AGENT_STATUS_INTERVAL_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_STATUS_INTERVAL_SECS),
+    )
 }
 
 pub fn prepare_socket_path(path: &Path) -> Result<()> {
@@ -115,20 +180,6 @@ pub fn restrict_socket_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn default_threads() -> usize {
-    std::thread::available_parallelism()
-        .map(|parallelism| usize::max(1, parallelism.get() / 2))
-        .unwrap_or(1)
-}
-
-fn parse_max_threads(threads: usize) -> Result<u16> {
-    u16::try_from(threads.max(1)).context("max_threads exceed u16 range")
-}
-
-fn default_initial_budget(max_threads: u16) -> Budget {
-    default_budget_for_mode(BudgetMode::Conservative, max_threads, 1)
-}
-
 pub fn default_socket_path() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
@@ -144,42 +195,20 @@ pub fn default_state_path() -> PathBuf {
     default_state_root().join("state.json")
 }
 
-pub fn default_main_pool() -> String {
-    std::env::var("STC_MINT_AGENT_POOL").unwrap_or_else(|_| DEFAULT_MAIN_POOL.to_string())
+fn parse_strategy(value: &str) -> Option<ConsensusStrategy> {
+    match value {
+        "dummy" => Some(ConsensusStrategy::Dummy),
+        "argon" => Some(ConsensusStrategy::Argon),
+        "keccak" => Some(ConsensusStrategy::Keccak),
+        "cryptonight" => Some(ConsensusStrategy::CryptoNight),
+        _ => None,
+    }
 }
 
-pub fn default_main_pass() -> String {
-    std::env::var("STC_MINT_AGENT_PASS").unwrap_or_else(|_| DEFAULT_MAIN_PASS.to_string())
-}
-
-pub fn default_agent_name() -> String {
-    std::env::var("STC_MINT_AGENT_AGENT").unwrap_or_else(|_| DEFAULT_AGENT_NAME.to_string())
-}
-
-pub fn default_keepalive_interval() -> Duration {
-    Duration::from_secs(
-        std::env::var("STC_MINT_AGENT_KEEPALIVE_INTERVAL_SECS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(DEFAULT_KEEPALIVE_INTERVAL_SECS),
-    )
-}
-
-pub fn default_status_interval() -> Duration {
-    Duration::from_secs(
-        std::env::var("STC_MINT_AGENT_STATUS_INTERVAL_SECS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(DEFAULT_STATUS_INTERVAL_SECS),
-    )
-}
-
-pub fn default_main_strategy() -> ConsensusStrategy {
-    std::env::var("STC_MINT_AGENT_STRATEGY")
-        .ok()
-        .and_then(|value| CliConsensusStrategy::from_str(&value).ok())
-        .map(ConsensusStrategy::from)
-        .unwrap_or(ConsensusStrategy::CryptoNight)
+fn logical_cpus() -> usize {
+    std::thread::available_parallelism()
+        .map(|parallelism| parallelism.get())
+        .unwrap_or(1)
 }
 
 fn remove_stale_socket(path: &Path) -> Result<()> {
@@ -230,30 +259,5 @@ fn private_tmp_dir_name() -> String {
     #[cfg(not(unix))]
     {
         "stc-mint-agent".to_string()
-    }
-}
-
-impl From<CliConsensusStrategy> for ConsensusStrategy {
-    fn from(value: CliConsensusStrategy) -> Self {
-        match value {
-            CliConsensusStrategy::Dummy => ConsensusStrategy::Dummy,
-            CliConsensusStrategy::Argon => ConsensusStrategy::Argon,
-            CliConsensusStrategy::Keccak => ConsensusStrategy::Keccak,
-            CliConsensusStrategy::Cryptonight => ConsensusStrategy::CryptoNight,
-        }
-    }
-}
-
-impl FromStr for CliConsensusStrategy {
-    type Err = String;
-
-    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
-        match value.to_ascii_lowercase().as_str() {
-            "dummy" => Ok(Self::Dummy),
-            "argon" => Ok(Self::Argon),
-            "keccak" => Ok(Self::Keccak),
-            "cryptonight" | "cnr" => Ok(Self::Cryptonight),
-            other => Err(format!("unsupported consensus strategy: {other}")),
-        }
     }
 }

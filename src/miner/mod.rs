@@ -6,9 +6,10 @@ mod solver;
 mod state;
 
 pub use api::{
-    default_budget_for_mode, AgentError, AgentErrorKind, Budget, BudgetError, BudgetMode,
-    ConfigError, EventsSinceResponse, MinerCapabilities, MinerConfig, MinerEvent,
-    MinerEventEnvelope, MinerSnapshot, MinerState, Priority, RunnerError,
+    default_agent_methods, default_budget_for_mode, default_miner_capabilities, AgentError,
+    AgentErrorKind, AutoHoldReason, AutoState, Budget, BudgetError, BudgetMode, ConfigError,
+    EventsSinceResponse, MinerCapabilities, MinerConfig, MinerEvent, MinerEventEnvelope,
+    MinerSnapshot, MinerState, Priority, RunnerError,
 };
 pub use runtime::{MinerHandle, MinerRunner};
 pub use schema::{

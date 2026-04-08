@@ -1,7 +1,8 @@
 use super::client::AgentClientError;
+use super::config::{default_network, default_requested_mode, MintProfile};
 use super::AgentConnection;
-use serde::{Deserialize, Serialize};
-use starcoin_types::genesis_config::ConsensusStrategy;
+use crate::{BudgetMode, MinerState, MintNetwork, WalletAddress, WorkerId};
+use serde::Serialize;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub(crate) struct WalletConfigSummary {
     pub wallet_address: String,
     pub worker_id: String,
+    pub network: MintNetwork,
     pub login: String,
     pub state_path: String,
     pub socket_path: String,
@@ -26,10 +28,14 @@ pub(crate) struct DoctorReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<MintNetwork>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub login: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_mode: Option<BudgetMode>,
     pub daemon_running: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub current_state: Option<crate::MinerState>,
+    pub current_state: Option<MinerState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_pool: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,7 +49,6 @@ pub(crate) struct DoctorReport {
 #[derive(Debug)]
 pub(crate) enum WalletAgentError {
     NotConfigured,
-    InvalidWallet(crate::ParseStratumLoginError),
     Io {
         context: &'static str,
         source: std::io::Error,
@@ -54,28 +59,14 @@ pub(crate) enum WalletAgentError {
     DaemonBinaryNotFound(PathBuf),
     DaemonExited,
     DaemonStartTimeout(Duration),
-    DaemonStopTimeout(Duration),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) struct PersistedState {
-    pub(super) wallet_address: String,
-    pub(super) worker_id: String,
-}
-
-impl PersistedState {
-    pub(super) fn login(&self) -> String {
-        format!("{}.{}", self.wallet_address, self.worker_id)
-    }
 }
 
 impl Display for WalletAgentError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotConfigured => {
-                f.write_str("mint not configured; run setup with a wallet address first")
+                f.write_str("mint not configured; run `wallet set --wallet-address ...` first")
             }
-            Self::InvalidWallet(err) => err.fmt(f),
             Self::Io { context, source } => write!(f, "{context} failed: {source}"),
             Self::StateParse(err) => write!(f, "parse state file failed: {err}"),
             Self::Rpc(err) => err.fmt(f),
@@ -95,31 +86,27 @@ impl Display for WalletAgentError {
                     timeout.as_secs()
                 )
             }
-            Self::DaemonStopTimeout(timeout) => {
-                write!(
-                    f,
-                    "stc-mint-agent did not stop within {}s",
-                    timeout.as_secs()
-                )
-            }
         }
     }
 }
 
 impl std::error::Error for WalletAgentError {}
 
-pub(super) fn default_max_threads() -> u16 {
-    let threads = std::thread::available_parallelism()
-        .map(|parallelism| usize::max(1, parallelism.get() / 2))
-        .unwrap_or(1);
-    u16::try_from(threads).unwrap_or(u16::MAX)
-}
-
-pub(super) fn generate_worker_id() -> String {
+pub(super) fn generate_worker_id() -> WorkerId {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |value| value.as_nanos());
-    format!("agent{:x}", now ^ u128::from(std::process::id()))
+    WorkerId::parse(format!("agent{:x}", now ^ u128::from(std::process::id())))
+        .expect("generated worker_id should be valid")
+}
+
+pub(super) fn profile_with_defaults(wallet_address: WalletAddress) -> MintProfile {
+    MintProfile {
+        wallet_address,
+        worker_id: generate_worker_id(),
+        requested_mode: default_requested_mode(),
+        network: default_network(),
+    }
 }
 
 pub(super) fn resolve_binary_from_current_exe(name: &str) -> Result<PathBuf, WalletAgentError> {
@@ -149,15 +136,6 @@ pub(super) fn resolve_binary_from_current_exe(name: &str) -> Result<PathBuf, Wal
         }
     }
     Err(WalletAgentError::DaemonBinaryNotFound(current))
-}
-
-pub(super) fn consensus_strategy_name(strategy: ConsensusStrategy) -> &'static str {
-    match strategy {
-        ConsensusStrategy::Dummy => "dummy",
-        ConsensusStrategy::Argon => "argon",
-        ConsensusStrategy::Keccak => "keccak",
-        ConsensusStrategy::CryptoNight => "cryptonight",
-    }
 }
 
 pub(super) fn write_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
@@ -219,6 +197,8 @@ pub(super) async fn wait_for_daemon_ready(
 #[cfg(test)]
 mod tests {
     use super::write_file_atomically;
+    use crate::agent::config::MintProfile;
+    use crate::{BudgetMode, MintNetwork, WalletAddress, WorkerId};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -240,5 +220,15 @@ mod tests {
         let bytes = std::fs::read(&path).expect("read state");
         assert_eq!(bytes, b"second");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn persisted_state_defaults_to_auto_mode_and_main_network() {
+        let encoded = br#"{"wallet_address":"0x1","worker_id":"agent1"}"#;
+        let decoded: MintProfile = serde_json::from_slice(encoded).expect("decode legacy state");
+        assert_eq!(decoded.requested_mode, BudgetMode::Auto);
+        assert_eq!(decoded.network, MintNetwork::Main);
+        assert_eq!(decoded.wallet_address, WalletAddress::parse("0x1").unwrap());
+        assert_eq!(decoded.worker_id, WorkerId::parse("agent1").unwrap());
     }
 }

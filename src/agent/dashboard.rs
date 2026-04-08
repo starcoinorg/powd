@@ -1,5 +1,7 @@
-use super::wallet::{WalletAgent, WalletAgentError};
-use crate::{BudgetMode, EventsSinceResponse, MinerSnapshot};
+use super::render::format_event;
+use super::wallet::WalletAgent;
+use super::wallet_support::WalletAgentError;
+use crate::{BudgetMode, EventsSinceResponse, MinerSnapshot, WalletAddress};
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::style::Print;
@@ -83,8 +85,11 @@ async fn handle_key(
                 if wallet.is_empty() {
                     state.status_message = Some("wallet update cancelled".to_string());
                 } else {
-                    state.status_message = Some(match agent.update_wallet(&wallet).await {
-                        Ok(summary) => format!("wallet updated: {}", summary.login),
+                    state.status_message = Some(match WalletAddress::parse(wallet) {
+                        Ok(wallet_address) => match agent.set_wallet(wallet_address, None).await {
+                            Ok(summary) => format!("wallet updated: {}", summary.login),
+                            Err(err) => err.to_string(),
+                        },
                         Err(err) => err.to_string(),
                     });
                 }
@@ -103,6 +108,12 @@ async fn handle_key(
         KeyCode::Char('x') => Some(agent.stop().await.map(|_| "miner stopped".to_string())),
         KeyCode::Char('p') => Some(agent.pause().await.map(|_| "miner paused".to_string())),
         KeyCode::Char('r') => Some(agent.resume().await.map(|_| "miner resumed".to_string())),
+        KeyCode::Char('a') => Some(
+            agent
+                .set_mode(BudgetMode::Auto)
+                .await
+                .map(|_| "mode -> auto".to_string()),
+        ),
         KeyCode::Char('1') => Some(
             agent
                 .set_mode(BudgetMode::Conservative)
@@ -156,11 +167,9 @@ async fn refresh_dashboard(agent: &WalletAgent, state: &mut DashboardState) {
                 if state.events.len() >= DASHBOARD_EVENT_LIMIT {
                     state.events.pop_front();
                 }
-                state.events.push_back(format!(
-                    "#{} {}",
-                    event.seq,
-                    serde_json::to_string(&event.event).unwrap_or_else(|_| "event".to_string())
-                ));
+                state
+                    .events
+                    .push_back(format!("#{} {}", event.seq, format_event(&event.event)));
             }
         }
         Err(WalletAgentError::NotConfigured) => {}
@@ -173,50 +182,88 @@ fn render_dashboard(stdout: &mut Stdout, state: &DashboardState) -> io::Result<(
     queue!(
         stdout,
         Print("stc-mint-agent dashboard\n"),
-        Print("q quit | s start | x stop | p pause | r resume | 1 conservative | 2 idle | 3 balanced | 4 aggressive | w update wallet\n\n"),
+        Print("q quit | s start | x stop | p pause | r resume | a auto | 1 conservative | 2 idle | 3 balanced | 4 aggressive | w update wallet\n\n"),
     )?;
 
     match &state.snapshot {
         Some(snapshot) => {
             queue!(
                 stdout,
-                Print(format!("state:          {:?}\n", snapshot.state)),
-                Print(format!("connected:      {}\n", snapshot.connected)),
-                Print(format!("pool:           {}\n", snapshot.pool)),
-                Print(format!("worker_name:    {}\n", snapshot.worker_name)),
+                Print(format!("state:                  {:?}\n", snapshot.state)),
+                Print(format!("connected:              {}\n", snapshot.connected)),
+                Print(format!("pool:                   {}\n", snapshot.pool)),
                 Print(format!(
-                    "mode:           {}\n",
-                    snapshot
-                        .current_mode
-                        .as_ref()
-                        .map(|value| format!("{value:?}").to_lowercase())
-                        .unwrap_or_else(|| "custom_budget".to_string())
+                    "worker_name:            {}\n",
+                    snapshot.worker_name
                 )),
-                Print(format!("hashrate:       {:.2} H/s\n", snapshot.hashrate)),
-                Print(format!("hashrate_5m:    {:.2} H/s\n", snapshot.hashrate_5m)),
                 Print(format!(
-                    "accepted:       {} (5m {})\n",
+                    "requested_mode:         {:?}\n",
+                    snapshot.requested_mode
+                )),
+                Print(format!(
+                    "auto_state:             {:?}\n",
+                    snapshot.auto_state
+                )),
+                Print(format!(
+                    "auto_hold_reason:       {}\n",
+                    snapshot
+                        .auto_hold_reason
+                        .map(|value| format!("{value:?}").to_lowercase())
+                        .unwrap_or_else(|| "-".to_string())
+                )),
+                Print(format!(
+                    "effective_budget:       threads={} cpu_percent={} priority={:?}\n",
+                    snapshot.effective_budget.threads,
+                    snapshot.effective_budget.cpu_percent,
+                    snapshot.effective_budget.priority,
+                )),
+                Print(format!(
+                    "hashrate:               {:.2} H/s\n",
+                    snapshot.hashrate
+                )),
+                Print(format!(
+                    "hashrate_5m:            {:.2} H/s\n",
+                    snapshot.hashrate_5m
+                )),
+                Print(format!(
+                    "accepted:               {} (5m {})\n",
                     snapshot.accepted, snapshot.accepted_5m
                 )),
                 Print(format!(
-                    "rejected:       {} (5m {})\n",
+                    "rejected:               {} (5m {})\n",
                     snapshot.rejected, snapshot.rejected_5m
                 )),
                 Print(format!(
-                    "submitted:      {} (5m {})\n",
+                    "submitted:              {} (5m {})\n",
                     snapshot.submitted, snapshot.submitted_5m
                 )),
-                Print(format!("reject_rate_5m: {:.3}\n", snapshot.reject_rate_5m)),
-                Print(format!("reconnects:     {}\n", snapshot.reconnects)),
                 Print(format!(
-                    "budget:         threads={} cpu_percent={} priority={:?}\n",
-                    snapshot.current_budget.threads,
-                    snapshot.current_budget.cpu_percent,
-                    snapshot.current_budget.priority
+                    "reject_rate_5m:         {:.3}\n",
+                    snapshot.reject_rate_5m
+                )),
+                Print(format!("reconnects:             {}\n", snapshot.reconnects)),
+                Print(format!(
+                    "system_cpu_percent:     {:.1}\n",
+                    snapshot.system_cpu_percent
+                )),
+                Print(format!(
+                    "system_memory_percent:  {:.1}\n",
+                    snapshot.system_memory_percent
+                )),
+                Print(format!(
+                    "system_cpu_percent_1m:  {:.1}\n",
+                    snapshot.system_cpu_percent_1m
+                )),
+                Print(format!(
+                    "system_memory_percent_1m:{:.1}\n",
+                    snapshot.system_memory_percent_1m
                 )),
             )?;
             if let Some(last_error) = &snapshot.last_error {
-                queue!(stdout, Print(format!("last_error:     {}\n", last_error)))?;
+                queue!(
+                    stdout,
+                    Print(format!("last_error:             {}\n", last_error))
+                )?;
             }
         }
         None => {
@@ -238,7 +285,7 @@ fn render_dashboard(stdout: &mut Stdout, state: &DashboardState) -> io::Result<(
 
     queue!(stdout, Print("\n"))?;
     if let Some(buffer) = &state.wallet_input {
-        queue!(stdout, Print(format!("wallet> {}_", buffer)),)?;
+        queue!(stdout, Print(format!("wallet> {}_", buffer)))?;
     } else if let Some(message) = &state.status_message {
         queue!(stdout, Print(format!("status: {}\n", message)))?;
     }

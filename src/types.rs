@@ -1,7 +1,42 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MintNetwork {
+    Main,
+    Halley,
+}
+
+impl MintNetwork {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Main => "main",
+            Self::Halley => "halley",
+        }
+    }
+}
+
+impl Display for MintNetwork {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for MintNetwork {
+    type Err = ParseMintNetworkError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "main" => Ok(Self::Main),
+            "halley" => Ok(Self::Halley),
+            _ => Err(ParseMintNetworkError),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct WalletAddress(String);
 
 impl WalletAddress {
@@ -20,7 +55,7 @@ impl Display for WalletAddress {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct WorkerName(String);
 
 impl WorkerName {
@@ -39,7 +74,7 @@ impl Display for WorkerName {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct WorkerId(String);
 
 impl WorkerId {
@@ -62,7 +97,7 @@ impl Display for WorkerId {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct JobId(String);
 
 impl JobId {
@@ -188,6 +223,17 @@ impl Display for ParseStratumLoginError {
 }
 
 impl std::error::Error for ParseStratumLoginError {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ParseMintNetworkError;
+
+impl Display for ParseMintNetworkError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("network must be one of: main, halley")
+    }
+}
+
+impl std::error::Error for ParseMintNetworkError {}
 
 impl From<ParseWorkerNameError> for ParseStratumLoginError {
     fn from(value: ParseWorkerNameError) -> Self {

@@ -14,10 +14,27 @@ pub enum Priority {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BudgetMode {
+    Auto,
     Conservative,
     Idle,
     Balanced,
     Aggressive,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoState {
+    Inactive,
+    Active,
+    Held,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoHoldReason {
+    ManualPause,
+    ManualStop,
+    NotRunning,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -66,7 +83,8 @@ pub struct MinerSnapshot {
     pub connected: bool,
     pub pool: String,
     pub worker_name: String,
-    pub current_mode: Option<BudgetMode>,
+    pub requested_mode: BudgetMode,
+    pub effective_budget: Budget,
     pub hashrate: f64,
     pub hashrate_5m: f64,
     pub accepted: u64,
@@ -78,7 +96,12 @@ pub struct MinerSnapshot {
     pub reject_rate_5m: f64,
     pub reconnects: u64,
     pub uptime_secs: u64,
-    pub current_budget: Budget,
+    pub system_cpu_percent: f64,
+    pub system_memory_percent: f64,
+    pub system_cpu_percent_1m: f64,
+    pub system_memory_percent_1m: f64,
+    pub auto_state: AutoState,
+    pub auto_hold_reason: Option<AutoHoldReason>,
     pub last_error: Option<String>,
 }
 
@@ -187,6 +210,7 @@ impl std::error::Error for RunnerError {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AgentError {
+    NotConfigured,
     InvalidConfig(ConfigError),
     NotRunning,
     InvalidBudget(BudgetError),
@@ -199,6 +223,7 @@ pub enum AgentError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentErrorKind {
+    NotConfigured,
     InvalidConfig,
     NotRunning,
     InvalidBudget,
@@ -211,6 +236,7 @@ pub enum AgentErrorKind {
 impl Display for AgentError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NotConfigured => f.write_str("mint daemon is not configured"),
             Self::InvalidConfig(err) => err.fmt(f),
             Self::NotRunning => f.write_str("miner is not running"),
             Self::InvalidBudget(err) => err.fmt(f),
@@ -229,6 +255,7 @@ impl std::error::Error for AgentError {}
 impl AgentError {
     pub fn kind(&self) -> AgentErrorKind {
         match self {
+            Self::NotConfigured => AgentErrorKind::NotConfigured,
             Self::InvalidConfig(_) => AgentErrorKind::InvalidConfig,
             Self::NotRunning => AgentErrorKind::NotRunning,
             Self::InvalidBudget(_) => AgentErrorKind::InvalidBudget,
@@ -262,23 +289,32 @@ impl MinerConfig {
     }
 
     pub fn capabilities(&self) -> MinerCapabilities {
-        MinerCapabilities {
-            max_threads: self.max_threads,
-            supported_modes: vec![
-                BudgetMode::Conservative,
-                BudgetMode::Idle,
-                BudgetMode::Balanced,
-                BudgetMode::Aggressive,
-            ],
-            supported_priorities: vec![Priority::Background],
-            supports_cpu_percent: true,
-            supports_priority: true,
-        }
+        default_miner_capabilities(self.max_threads)
     }
 
     pub fn methods(&self) -> AgentMethods {
         build_agent_methods(&self.capabilities())
     }
+}
+
+pub fn default_miner_capabilities(max_threads: u16) -> MinerCapabilities {
+    MinerCapabilities {
+        max_threads,
+        supported_modes: vec![
+            BudgetMode::Auto,
+            BudgetMode::Conservative,
+            BudgetMode::Idle,
+            BudgetMode::Balanced,
+            BudgetMode::Aggressive,
+        ],
+        supported_priorities: vec![Priority::Background],
+        supports_cpu_percent: true,
+        supports_priority: true,
+    }
+}
+
+pub fn default_agent_methods(max_threads: u16) -> AgentMethods {
+    build_agent_methods(&default_miner_capabilities(max_threads))
 }
 
 impl Budget {
@@ -300,7 +336,7 @@ pub fn default_budget_for_mode(mode: BudgetMode, max_threads: u16, logical_cpus:
     let logical_cpus = logical_cpus.max(1);
     let limit = usize::from(max_threads.max(1));
     match mode {
-        BudgetMode::Conservative => Budget {
+        BudgetMode::Auto | BudgetMode::Conservative => Budget {
             threads: 1.min(limit) as u16,
             cpu_percent: 50,
             priority: Priority::Background,
