@@ -61,7 +61,7 @@ where
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), pick_free_port()?);
     let listener = TcpListener::bind(addr)
         .await
-        .with_context(|| format!("bind {} pool failed", label))?;
+        .with_context(|| format!("bind {label} pool failed"))?;
     let connection_seq = Arc::new(AtomicUsize::new(0));
     let task = tokio::spawn({
         let connection_seq = Arc::clone(&connection_seq);

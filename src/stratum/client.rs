@@ -29,7 +29,7 @@ struct PendingRequest {
 
 #[derive(Debug)]
 pub enum ClientEvent {
-    Job(StratumJobResponse),
+    Job(Box<StratumJobResponse>),
     SubmitAccepted,
     SubmitRejected(String),
     KeepaliveOk,
@@ -62,7 +62,7 @@ impl StratumClient {
     pub async fn connect(pool: &str) -> Result<Self> {
         let stream = TcpStream::connect(pool)
             .await
-            .with_context(|| format!("connect to pool {} failed", pool))?;
+            .with_context(|| format!("connect to pool {pool} failed"))?;
         Ok(Self {
             framed: Framed::new(stream, JsonStreamCodec::stream_incoming()),
             next_id: 1,
@@ -86,8 +86,7 @@ impl StratumClient {
             }
             if let Some(err) = extract_error_message(&value) {
                 return Err(LoginError::Permanent(anyhow::anyhow!(
-                    "login failed: {}",
-                    err
+                    "login failed: {err}"
                 )));
             }
             if let Some(job) = extract_job(&value) {
@@ -117,7 +116,7 @@ impl StratumClient {
             self.prune_pending();
             let value = self.read_value().await?;
             if let Some(job) = extract_job(&value) {
-                return Ok(ClientEvent::Job(job));
+                return Ok(ClientEvent::Job(Box::new(job)));
             }
             let Some(id) = response_id(&value) else {
                 continue;
@@ -183,7 +182,7 @@ impl StratumClient {
             .next()
             .await
             .ok_or_else(|| anyhow::anyhow!("stratum connection closed"))??;
-        Ok(serde_json::from_str(&line).context("parse stratum json failed")?)
+        serde_json::from_str(&line).context("parse stratum json failed")
     }
 }
 
@@ -201,14 +200,14 @@ fn parse_submit_response(value: &Value) -> Result<ClientEvent> {
         return Ok(ClientEvent::SubmitAccepted);
     }
     Ok(ClientEvent::SubmitRejected(format!(
-        "unexpected submit status: {}",
-        accepted.status
+        "unexpected submit status: {status}",
+        status = accepted.status
     )))
 }
 
 fn parse_keepalive_response(value: &Value) -> Result<ClientEvent> {
     if let Some(err) = extract_error_message(value) {
-        return Err(anyhow::anyhow!("keepalive failed: {}", err));
+        return Err(anyhow::anyhow!("keepalive failed: {err}"));
     }
     let keepalive: Status = serde_json::from_value(
         value
@@ -218,8 +217,8 @@ fn parse_keepalive_response(value: &Value) -> Result<ClientEvent> {
     )?;
     if keepalive.status != "KEEPALIVED" {
         return Err(anyhow::anyhow!(
-            "unexpected keepalive status: {}",
-            keepalive.status
+            "unexpected keepalive status: {status}",
+            status = keepalive.status
         ));
     }
     Ok(ClientEvent::KeepaliveOk)

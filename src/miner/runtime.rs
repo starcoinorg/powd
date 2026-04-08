@@ -34,6 +34,16 @@ struct RuntimeCtx<'a> {
     events_tx: &'a broadcast::Sender<MinerEvent>,
 }
 
+struct RunLoopDeps<'a> {
+    share_rx: &'a mut mpsc::Receiver<SolvedShare>,
+    keepalive_tick: &'a mut tokio::time::Interval,
+    status_tick: &'a mut tokio::time::Interval,
+    hashes: &'a Arc<AtomicU64>,
+    accepted_goal: u64,
+    shutdown: &'a CancellationToken,
+    command_rx: &'a mut mpsc::UnboundedReceiver<RuntimeCommand>,
+}
+
 pub struct MinerRunner {
     config: MinerConfig,
 }
@@ -329,13 +339,15 @@ async fn run_runtime(
         &ctx,
         solver.pool(),
         &mut state,
-        &mut share_rx,
-        &mut keepalive_tick,
-        &mut status_tick,
-        &hashes,
-        accepted_goal,
-        &shutdown,
-        &mut command_rx,
+        RunLoopDeps {
+            share_rx: &mut share_rx,
+            keepalive_tick: &mut keepalive_tick,
+            status_tick: &mut status_tick,
+            hashes: &hashes,
+            accepted_goal,
+            shutdown: &shutdown,
+            command_rx: &mut command_rx,
+        },
     )
     .await;
 
@@ -368,14 +380,17 @@ async fn run_loop(
     ctx: &RuntimeCtx<'_>,
     solver: &SolverPool,
     state: &mut RuntimeState,
-    share_rx: &mut mpsc::Receiver<SolvedShare>,
-    keepalive_tick: &mut tokio::time::Interval,
-    status_tick: &mut tokio::time::Interval,
-    hashes: &Arc<AtomicU64>,
-    accepted_goal: u64,
-    shutdown: &CancellationToken,
-    command_rx: &mut mpsc::UnboundedReceiver<RuntimeCommand>,
+    deps: RunLoopDeps<'_>,
 ) -> anyhow::Result<()> {
+    let RunLoopDeps {
+        share_rx,
+        keepalive_tick,
+        status_tick,
+        hashes,
+        accepted_goal,
+        shutdown,
+        command_rx,
+    } = deps;
     ctx.publish_snapshot(state);
     loop {
         if shutdown.is_cancelled() || state.should_stop(accepted_goal) {
@@ -613,7 +628,7 @@ async fn try_submit_next(state: &mut RuntimeState) -> bool {
             false
         }
         Err(err) => {
-            warn!(target: "cpu_miner", "send submit failed: {}", err);
+            warn!(target: "cpu_miner", "send submit failed: {err}");
             state.last_error = Some(format!("submit send failed: {err}"));
             state.queue_share(share);
             state.mark_disconnected();

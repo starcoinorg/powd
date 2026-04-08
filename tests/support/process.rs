@@ -67,14 +67,6 @@ pub fn resolve_powd_miner_bin() -> Result<PathBuf> {
     resolve_binary("powd-miner")
 }
 
-pub fn resolve_powd_bin() -> Result<PathBuf> {
-    resolve_binary("powd")
-}
-
-pub fn resolve_powctl_bin() -> Result<PathBuf> {
-    resolve_binary("powctl")
-}
-
 pub fn resolve_stratumd_bin() -> Result<PathBuf> {
     if let Ok(bin) = std::env::var("STRATUMD_BIN") {
         return Ok(PathBuf::from(bin));
@@ -88,7 +80,7 @@ fn resolve_binary(name: &str) -> Result<PathBuf> {
 
 fn resolve_binary_from_candidates(names: &[&str]) -> Result<PathBuf> {
     for name in names {
-        let env_var = format!("CARGO_BIN_EXE_{}", name);
+        let env_var = format!("CARGO_BIN_EXE_{name}");
         if let Ok(bin) = std::env::var(&env_var) {
             return Ok(PathBuf::from(bin));
         }
@@ -98,12 +90,10 @@ fn resolve_binary_from_candidates(names: &[&str]) -> Result<PathBuf> {
     let debug_dir = current
         .parent()
         .and_then(|path| path.parent())
-        .ok_or_else(|| {
-            anyhow::anyhow!("cannot locate target/debug directory from {:?}", current)
-        })?;
+        .ok_or_else(|| anyhow::anyhow!("cannot locate target/debug directory from {current:?}"))?;
     for name in names {
         let candidate = debug_dir.join(if cfg!(windows) {
-            format!("{}.exe", name)
+            format!("{name}.exe")
         } else {
             name.to_string()
         });
@@ -112,8 +102,7 @@ fn resolve_binary_from_candidates(names: &[&str]) -> Result<PathBuf> {
         }
     }
     Err(anyhow::anyhow!(
-        "cannot find any of {:?} via STRATUMD_BIN, env var, or target/debug",
-        names,
+        "cannot find any of {names:?} via STRATUMD_BIN, env var, or target/debug"
     ))
 }
 
@@ -132,8 +121,7 @@ where
         }
         if start.elapsed() > timeout {
             return Err(anyhow::anyhow!(
-                "wait submit count timeout: expected at least {}",
-                expected,
+                "wait submit count timeout: expected at least {expected}"
             ));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -189,12 +177,11 @@ async fn wait_for_server_ready(
         }
         if let Some(status) = child.try_wait()? {
             return Err(anyhow::anyhow!(
-                "stratumd exited before ready, status: {}",
-                status,
+                "stratumd exited before ready, status: {status}"
             ));
         }
         if start.elapsed() > timeout {
-            return Err(anyhow::anyhow!("wait stratumd ready timeout: {}", addr));
+            return Err(anyhow::anyhow!("wait stratumd ready timeout: {addr}"));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

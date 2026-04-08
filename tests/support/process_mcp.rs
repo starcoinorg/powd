@@ -24,7 +24,7 @@ pub fn temp_test_path(prefix: &str, suffix: &str) -> PathBuf {
 }
 
 fn resolve_binary(name: &str) -> Result<PathBuf> {
-    let env_var = format!("CARGO_BIN_EXE_{}", name);
+    let env_var = format!("CARGO_BIN_EXE_{name}");
     if let Ok(bin) = std::env::var(&env_var) {
         return Ok(PathBuf::from(bin));
     }
@@ -32,11 +32,9 @@ fn resolve_binary(name: &str) -> Result<PathBuf> {
     let debug_dir = current
         .parent()
         .and_then(|path| path.parent())
-        .ok_or_else(|| {
-            anyhow::anyhow!("cannot locate target/debug directory from {:?}", current)
-        })?;
+        .ok_or_else(|| anyhow::anyhow!("cannot locate target/debug directory from {current:?}"))?;
     let candidate = debug_dir.join(if cfg!(windows) {
-        format!("{}.exe", name)
+        format!("{name}.exe")
     } else {
         name.to_string()
     });
@@ -44,7 +42,6 @@ fn resolve_binary(name: &str) -> Result<PathBuf> {
         return Ok(candidate);
     }
     Err(anyhow::anyhow!(
-        "cannot find {} binary via env var or target/debug",
-        name,
+        "cannot find {name} binary via env var or target/debug"
     ))
 }

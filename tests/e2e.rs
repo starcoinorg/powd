@@ -54,8 +54,7 @@ async fn cpu_miner_submits_share_to_current_stratumd() -> Result<()> {
         .context("run cpu miner failed")?;
     assert!(
         status.success(),
-        "cpu miner should exit successfully: {}",
-        status
+        "cpu miner should exit successfully: {status}"
     );
 
     let calls = mock.submit_calls()?;
@@ -101,8 +100,7 @@ async fn cpu_miner_submits_keccak_share_to_current_stratumd() -> Result<()> {
         .context("run cpu miner failed")?;
     assert!(
         status.success(),
-        "cpu miner should exit successfully on keccak: {}",
-        status
+        "cpu miner should exit successfully on keccak: {status}"
     );
 
     let calls = mock.submit_calls()?;
@@ -149,8 +147,7 @@ async fn cpu_miner_retries_until_stratumd_is_available() -> Result<()> {
     let status = wait_for_child_exit(&mut miner, Duration::from_secs(20)).await?;
     assert!(
         status.success(),
-        "cpu miner should recover and exit successfully: {}",
-        status
+        "cpu miner should recover and exit successfully: {status}"
     );
 
     wait_for_submit_count(|| Ok(mock.submit_calls()?.len()), 1, Duration::from_secs(5)).await?;
@@ -202,8 +199,7 @@ async fn cpu_miner_recovers_after_connected_stratumd_restart() -> Result<()> {
     let status = wait_for_child_exit(&mut miner, Duration::from_secs(25)).await?;
     assert!(
         status.success(),
-        "cpu miner should recover after stratumd restart: {}",
-        status
+        "cpu miner should recover after stratumd restart: {status}"
     );
     drop(stratumd);
     Ok(())
@@ -239,8 +235,7 @@ async fn cpu_miner_reconnects_after_keepalive_timeout() -> Result<()> {
 
     assert!(
         status.success(),
-        "cpu miner should recover after keepalive timeout and reconnect: {}",
-        status
+        "cpu miner should recover after keepalive timeout and reconnect: {status}"
     );
     Ok(())
 }
@@ -275,8 +270,7 @@ async fn cpu_miner_recovers_after_connected_pool_disconnect() -> Result<()> {
 
     assert!(
         status.success(),
-        "cpu miner should reconnect after connected pool disconnect: {}",
-        status
+        "cpu miner should reconnect after connected pool disconnect: {status}"
     );
     Ok(())
 }

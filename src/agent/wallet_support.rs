@@ -56,7 +56,7 @@ pub(crate) enum WalletAgentError {
     },
     StateParse(serde_json::Error),
     Rpc(AgentClientError),
-    Reward(RewardError),
+    Reward(Box<RewardError>),
     Spawn(std::io::Error),
     BinaryNotFound {
         name: &'static str,
@@ -160,9 +160,8 @@ pub(super) fn write_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), std
     );
     let tmp_path = parent.join(tmp_name);
     fs::write(&tmp_path, bytes)?;
-    fs::rename(&tmp_path, path).or_else(|rename_err| {
+    fs::rename(&tmp_path, path).inspect_err(|_rename_err| {
         let _ = fs::remove_file(&tmp_path);
-        Err(rename_err)
     })
 }
 

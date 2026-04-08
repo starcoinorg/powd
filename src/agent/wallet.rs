@@ -186,7 +186,7 @@ impl WalletAgent {
             .ok_or(WalletAgentError::NotConfigured)?;
         fetch_wallet_reward(&profile, self.timeout)
             .await
-            .map_err(WalletAgentError::Reward)
+            .map_err(|err| WalletAgentError::Reward(Box::new(err)))
     }
 
     pub async fn doctor(&self) -> Result<DoctorReport, WalletAgentError> {

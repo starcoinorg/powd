@@ -46,7 +46,7 @@ mod tests {
         let mut bytes = [0u8; 32];
         bytes[0] = 0x11;
         bytes[31] = 0xaa;
-        let hash = HashValue::from_slice(&bytes).expect("hash");
+        let hash = HashValue::from_slice(bytes).expect("hash");
         let result = hash_to_result_hex(&hash);
         assert!(result.starts_with("aa"));
         assert!(result.ends_with("11"));

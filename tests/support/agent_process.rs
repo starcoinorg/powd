@@ -93,8 +93,7 @@ async fn wait_for_socket(child: &mut Child, path: &Path, timeout: Duration) -> R
         }
         if let Some(status) = child.try_wait()? {
             return Err(anyhow::anyhow!(
-                "powd exited before socket ready, status: {}",
-                status
+                "powd exited before socket ready, status: {status}"
             ));
         }
         if start.elapsed() > timeout {

@@ -81,7 +81,7 @@ impl SolverPool {
             let share_tx = share_tx.clone();
             let shared = shared.clone();
             let handle = thread::Builder::new()
-                .name(format!("cpu-miner-{}", idx))
+                .name(format!("cpu-miner-{idx}"))
                 .spawn(move || run_worker(shared, hashes, share_tx, idx, thread_count))
                 .expect("spawn cpu miner worker");
             handles.push(handle);
@@ -118,7 +118,7 @@ impl SolverPool {
 
     pub(super) fn set_priority(&self, priority: Priority) {
         if let Err(err) = super::runtime_support::apply_runtime_priority(priority) {
-            starcoin_logger::prelude::warn!(target: "cpu_miner", "set priority failed: {}", err);
+            starcoin_logger::prelude::warn!(target: "cpu_miner", "set priority failed: {err}");
         }
     }
 

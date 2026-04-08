@@ -28,11 +28,11 @@ pub(crate) struct WalletRewardSnapshot {
 #[derive(Debug)]
 pub(crate) enum RewardError {
     Tls(ureq::native_tls::Error),
-    Http(ureq::Error),
+    Http(Box<ureq::Error>),
     Read(io::Error),
     Decode(serde_json::Error),
     InvalidResponse(&'static str),
-    Join(tokio::task::JoinError),
+    Join(Box<tokio::task::JoinError>),
 }
 
 impl Display for RewardError {
@@ -73,7 +73,7 @@ pub(crate) async fn fetch_wallet_reward(
     let profile = profile.clone();
     tokio::task::spawn_blocking(move || fetch_wallet_reward_blocking(&profile, timeout))
         .await
-        .map_err(RewardError::Join)?
+        .map_err(|err| RewardError::Join(Box::new(err)))?
 }
 
 fn fetch_wallet_reward_blocking(
@@ -90,7 +90,10 @@ fn fetch_wallet_reward_blocking(
         .timeout(timeout)
         .tls_connector(tls_connector)
         .build();
-    let response = agent.get(&url).call().map_err(RewardError::Http)?;
+    let response = agent
+        .get(&url)
+        .call()
+        .map_err(|err| RewardError::Http(Box::new(err)))?;
     let body = response.into_string().map_err(RewardError::Read)?;
     let payload: MiningDashboardResponse =
         serde_json::from_str(&body).map_err(RewardError::Decode)?;
