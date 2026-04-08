@@ -1,12 +1,12 @@
+use crate::protocol::codec::JsonStreamCodec;
+use crate::protocol::stratum_rpc::{
+    LoginRequest, ShareRequest, Status, StratumJob, StratumJobResponse,
+};
 use crate::types::WorkerId;
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::{json, Value};
-use starcoin_mining_pool::codec::JsonStreamCodec;
-use starcoin_mining_pool::stratum_rpc::{
-    LoginRequest, ShareRequest, Status, StratumJob, StratumJobResponse,
-};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;

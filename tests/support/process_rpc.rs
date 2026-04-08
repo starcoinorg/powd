@@ -7,8 +7,8 @@ use tokio::sync::Mutex;
 
 pub static TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-pub fn resolve_stc_mint_agent_bin() -> Result<PathBuf> {
-    resolve_binary("stc-mint-agent")
+pub fn resolve_powd_bin() -> Result<PathBuf> {
+    resolve_binary("powd")
 }
 
 pub fn pick_free_port() -> Result<u16> {
@@ -21,7 +21,7 @@ pub fn temp_test_path(prefix: &str, suffix: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |value| value.as_nanos());
     std::env::temp_dir().join(format!(
-        "starcoin-cpu-miner-test-{}-{}-{}.{}",
+        "powd-test-{}-{}-{}.{}",
         prefix,
         std::process::id(),
         now,

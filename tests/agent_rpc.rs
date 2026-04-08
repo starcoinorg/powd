@@ -8,9 +8,9 @@ mod process;
 use agent_process::AgentProcess;
 use anyhow::{Context, Result};
 use fake_pool::SilentKeepalivePool;
+use powd::agent::AgentConnection as RpcClient;
 use process::{pick_free_port, TEST_MUTEX};
 use serde_json::{json, Value};
-use starcoin_cpu_miner::agent::AgentConnection as RpcClient;
 use std::time::{Duration, Instant};
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(5);

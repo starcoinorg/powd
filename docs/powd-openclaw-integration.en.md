@@ -1,4 +1,4 @@
-# `stc-mint-agent` and OpenClaw Integration
+# `powd` and OpenClaw Integration
 
 ## Purpose
 
@@ -9,16 +9,16 @@ This document fixes the supported third-party integration boundary for OpenClaw:
 - how the package is installed and handed to users
 - why the system is organized that way
 
-It is the canonical integration document. The concrete command and API reference stays in `docs/stc-mint-agent-local-api.en.md`.
+It is the canonical integration document. The concrete command and API reference stays in `docs/powd-local-api.en.md`.
 
 ## Final organization
 
 The supported shape has three responsibilities:
 
-- `stc-mint-agent`
+- `powd`
   - the only daemon
   - owns the active miner runtime, local API, event history, and internal auto loop
-- `stc-mint-agentctl`
+- `powctl`
   - the only public front-end
   - owns persisted user profile, CLI, TUI, and the MCP bridge
 - OpenClaw
@@ -31,11 +31,11 @@ This deliberately rejects:
 - patching OpenClaw source for basic integration
 - putting the main scheduling loop into a skill prompt
 - putting the main scheduling loop into OpenClaw plugin code
-- adding a second adapter daemon beside `stc-mint-agent`
+- adding a second adapter daemon beside `powd`
 
 ## Why the loop lives in the daemon
 
-The main loop belongs in `stc-mint-agent` because the daemon already owns the long-lived runtime concerns:
+The main loop belongs in `powd` because the daemon already owns the long-lived runtime concerns:
 
 - the active miner runtime
 - reconnect and runtime transitions
@@ -45,13 +45,13 @@ The main loop belongs in `stc-mint-agent` because the daemon already owns the lo
 
 That loop is deterministic code, not an LLM prompt loop.
 
-`stc-mint-agentctl` owns user intent and bootstrapping, but the daemon owns the actual long-lived miner execution. That makes the policy durable even when OpenClaw is closed.
+`powctl` owns user intent and bootstrapping, but the daemon owns the actual long-lived miner execution. That makes the policy durable even when OpenClaw is closed.
 
 ## Adaptation path
 
 The formal OpenClaw entrypoint is:
 
-- `stc-mint-agentctl integrate mcp`
+- `powctl integrate mcp`
 
 This command runs a stdio MCP server.
 
@@ -86,21 +86,21 @@ It intentionally hides:
 
 The user-facing package contains:
 
-- `stc-mint-miner`
-- `stc-mint-agent`
-- `stc-mint-agentctl`
+- `powd-miner`
+- `powd`
+- `powctl`
 
 The normal install path is:
 
 1. install the package
 2. configure the wallet once:
-   - `stc-mint-agentctl wallet set --wallet-address <addr> [--network main|halley]`
+   - `powctl wallet set --wallet-address <addr> [--network main|halley]`
 3. if OpenClaw is used, print the MCP snippet:
-   - `stc-mint-agentctl integrate mcp-config`
+   - `powctl integrate mcp-config`
 4. register that MCP command in OpenClaw
 5. operate through:
    - OpenClaw tools
-   - or `stc-mint-agentctl miner watch`
+   - or `powctl miner watch`
 
 Defaults:
 

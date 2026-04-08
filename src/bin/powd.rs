@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use starcoin_cpu_miner::agent::{run, AgentArgs};
+use powd::agent::{run, AgentArgs};
 
 #[tokio::main]
 async fn main() -> Result<()> {

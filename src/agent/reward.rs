@@ -2,8 +2,8 @@ use super::config::{reward_api_base_url, MintProfile};
 use crate::MintNetwork;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+use std::io;
 use std::time::Duration;
-use ureq::tls::{TlsConfig, TlsProvider};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct WalletRewardSnapshot {
@@ -27,7 +27,7 @@ pub(crate) struct WalletRewardSnapshot {
 #[derive(Debug)]
 pub(crate) enum RewardError {
     Http(ureq::Error),
-    HttpStatus(u16, String),
+    Read(io::Error),
     Decode(serde_json::Error),
     InvalidResponse(&'static str),
     Join(tokio::task::JoinError),
@@ -37,13 +37,7 @@ impl Display for RewardError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Http(err) => write!(f, "reward query failed: {err}"),
-            Self::HttpStatus(status, body) => {
-                if body.trim().is_empty() {
-                    write!(f, "reward query failed with HTTP {status}")
-                } else {
-                    write!(f, "reward query failed with HTTP {status}: {}", body.trim())
-                }
-            }
+            Self::Read(err) => write!(f, "read reward response failed: {err}"),
             Self::Decode(err) => write!(f, "decode reward response failed: {err}"),
             Self::InvalidResponse(reason) => write!(f, "invalid reward response: {reason}"),
             Self::Join(err) => write!(f, "reward query task failed: {err}"),
@@ -88,21 +82,9 @@ fn fetch_wallet_reward_blocking(
         "{}/v1/mining/dashboard/{}?window_secs=300",
         base_url, profile.wallet_address
     );
-    let config = ureq::Agent::config_builder()
-        .timeout_global(Some(timeout))
-        .tls_config(TlsConfig::builder().provider(TlsProvider::NativeTls).build())
-        .http_status_as_error(false)
-        .build();
-    let agent: ureq::Agent = config.into();
-    let mut response = agent.get(&url).call().map_err(RewardError::Http)?;
-    let status = response.status().as_u16();
-    let body = response
-        .body_mut()
-        .read_to_string()
-        .map_err(RewardError::Http)?;
-    if !(200..300).contains(&status) {
-        return Err(RewardError::HttpStatus(status, body));
-    }
+    let agent = ureq::AgentBuilder::new().timeout(timeout).build();
+    let response = agent.get(&url).call().map_err(RewardError::Http)?;
+    let body = response.into_string().map_err(RewardError::Read)?;
     let payload: MiningDashboardResponse =
         serde_json::from_str(&body).map_err(RewardError::Decode)?;
     build_snapshot(payload, profile.network, base_url)

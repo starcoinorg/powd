@@ -239,11 +239,11 @@ impl WalletAgent {
     }
 
     pub fn mcp_config(&self) -> Result<Value, WalletAgentError> {
-        let command = resolve_binary_from_current_exe("stc-mint-agentctl")
-            .unwrap_or_else(|_| PathBuf::from("stc-mint-agentctl"));
+        let command =
+            resolve_binary_from_current_exe("powctl").unwrap_or_else(|_| PathBuf::from("powctl"));
         Ok(json!({
             "mcpServers": {
-                "stc-mint": {
+                "powd": {
                     "command": command,
                     "args": ["integrate", "mcp"],
                 }
@@ -355,7 +355,7 @@ impl WalletAgent {
     }
 
     async fn spawn_daemon(&self) -> Result<(), WalletAgentError> {
-        let bin = resolve_binary_from_current_exe("stc-mint-agent")?;
+        let bin = resolve_binary_from_current_exe("powd")?;
         let mut child = Command::new(bin)
             .arg("--socket")
             .arg(&self.socket_path)
@@ -407,7 +407,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |value| value.as_nanos());
         std::env::temp_dir().join(format!(
-            "stc-mint-agent-{label}-{}-{now}.{suffix}",
+            "powd-{label}-{}-{now}.{suffix}",
             std::process::id()
         ))
     }
@@ -474,7 +474,7 @@ mod tests {
 
         let config = agent.mcp_config().expect("mcp_config should succeed");
         assert_eq!(
-            config["mcpServers"]["stc-mint"]["args"],
+            config["mcpServers"]["powd"]["args"],
             serde_json::json!(["integrate", "mcp"])
         );
     }

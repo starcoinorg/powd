@@ -14,15 +14,15 @@ const DEFAULT_HALLEY_POOL: &str = "halley-stratum.starcoin.org:9888";
 const DEFAULT_PASS: &str = "x";
 const DEFAULT_MAIN_REWARD_API: &str = "https://main-pool.starcoin.org";
 const DEFAULT_HALLEY_REWARD_API: &str = "https://halley-pool.starcoin.org";
-const DEFAULT_AGENT_NAME: &str = "stc-mint-agent";
+const DEFAULT_AGENT_NAME: &str = "powd";
 const DEFAULT_KEEPALIVE_INTERVAL_SECS: u64 = 30;
 const DEFAULT_STATUS_INTERVAL_SECS: u64 = 10;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "stc-mint-agent",
-    about = "Internal daemon for stc-mint-agentctl. Normally started automatically.",
-    after_help = "This is the internal daemon binary. Use `stc-mint-agentctl wallet set` for first-time configuration, then drive miner start, mode changes, dashboard, and OpenClaw MCP integration through `stc-mint-agentctl`."
+    name = "powd",
+    about = "Internal daemon for powctl. Normally started automatically.",
+    after_help = "This is the internal daemon binary. Use `powctl wallet set` for first-time configuration, then drive miner start, mode changes, dashboard, and OpenClaw MCP integration through `powctl`."
 )]
 pub struct AgentArgs {
     #[arg(long, help = "Unix socket path for the local API")]
@@ -106,21 +106,18 @@ pub(crate) fn build_miner_config(
 pub(crate) fn network_defaults(network: MintNetwork) -> NetworkDefaults {
     match network {
         MintNetwork::Main => NetworkDefaults {
-            pool: std::env::var("STC_MINT_AGENT_MAIN_POOL")
-                .unwrap_or_else(|_| DEFAULT_MAIN_POOL.to_string()),
-            pass: std::env::var("STC_MINT_AGENT_MAIN_PASS")
-                .unwrap_or_else(|_| DEFAULT_PASS.to_string()),
-            strategy: std::env::var("STC_MINT_AGENT_MAIN_STRATEGY")
+            pool: std::env::var("POWD_MAIN_POOL").unwrap_or_else(|_| DEFAULT_MAIN_POOL.to_string()),
+            pass: std::env::var("POWD_MAIN_PASS").unwrap_or_else(|_| DEFAULT_PASS.to_string()),
+            strategy: std::env::var("POWD_MAIN_STRATEGY")
                 .ok()
                 .and_then(|value| parse_strategy(&value))
                 .unwrap_or(ConsensusStrategy::CryptoNight),
         },
         MintNetwork::Halley => NetworkDefaults {
-            pool: std::env::var("STC_MINT_AGENT_HALLEY_POOL")
+            pool: std::env::var("POWD_HALLEY_POOL")
                 .unwrap_or_else(|_| DEFAULT_HALLEY_POOL.to_string()),
-            pass: std::env::var("STC_MINT_AGENT_HALLEY_PASS")
-                .unwrap_or_else(|_| DEFAULT_PASS.to_string()),
-            strategy: std::env::var("STC_MINT_AGENT_HALLEY_STRATEGY")
+            pass: std::env::var("POWD_HALLEY_PASS").unwrap_or_else(|_| DEFAULT_PASS.to_string()),
+            strategy: std::env::var("POWD_HALLEY_STRATEGY")
                 .ok()
                 .and_then(|value| parse_strategy(&value))
                 .unwrap_or(ConsensusStrategy::CryptoNight),
@@ -130,9 +127,9 @@ pub(crate) fn network_defaults(network: MintNetwork) -> NetworkDefaults {
 
 pub(crate) fn reward_api_base_url(network: MintNetwork) -> String {
     let base_url = match network {
-        MintNetwork::Main => std::env::var("STC_MINT_AGENT_MAIN_REWARD_API")
+        MintNetwork::Main => std::env::var("POWD_MAIN_REWARD_API")
             .unwrap_or_else(|_| DEFAULT_MAIN_REWARD_API.to_string()),
-        MintNetwork::Halley => std::env::var("STC_MINT_AGENT_HALLEY_REWARD_API")
+        MintNetwork::Halley => std::env::var("POWD_HALLEY_REWARD_API")
             .unwrap_or_else(|_| DEFAULT_HALLEY_REWARD_API.to_string()),
     };
     base_url.trim_end_matches('/').to_string()
@@ -152,12 +149,12 @@ pub(crate) fn default_max_threads() -> u16 {
 }
 
 pub(crate) fn default_agent_name() -> String {
-    std::env::var("STC_MINT_AGENT_AGENT").unwrap_or_else(|_| DEFAULT_AGENT_NAME.to_string())
+    std::env::var("POWD_AGENT").unwrap_or_else(|_| DEFAULT_AGENT_NAME.to_string())
 }
 
 pub(crate) fn default_keepalive_interval() -> Duration {
     Duration::from_secs(
-        std::env::var("STC_MINT_AGENT_KEEPALIVE_INTERVAL_SECS")
+        std::env::var("POWD_KEEPALIVE_INTERVAL_SECS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(DEFAULT_KEEPALIVE_INTERVAL_SECS),
@@ -166,7 +163,7 @@ pub(crate) fn default_keepalive_interval() -> Duration {
 
 pub(crate) fn default_status_interval() -> Duration {
     Duration::from_secs(
-        std::env::var("STC_MINT_AGENT_STATUS_INTERVAL_SECS")
+        std::env::var("POWD_STATUS_INTERVAL_SECS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(DEFAULT_STATUS_INTERVAL_SECS),
@@ -197,11 +194,11 @@ pub fn default_socket_path() -> PathBuf {
         .map(PathBuf::from)
         .or_else(default_private_runtime_dir)
         .unwrap_or_else(|| PathBuf::from("/tmp").join(private_tmp_dir_name()))
-        .join("stc-mint-agent.sock")
+        .join("powd.sock")
 }
 
 pub fn default_state_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("STC_MINT_AGENT_STATE_PATH") {
+    if let Some(path) = std::env::var_os("POWD_STATE_PATH") {
         return PathBuf::from(path);
     }
     default_state_root().join("state.json")
@@ -250,7 +247,7 @@ fn ensure_socket_parent(path: &Path) -> Result<()> {
 }
 
 fn default_private_runtime_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".stc-mint-agent"))
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".powd"))
 }
 
 fn default_state_root() -> PathBuf {
@@ -260,16 +257,16 @@ fn default_state_root() -> PathBuf {
             std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("state"))
         })
         .unwrap_or_else(|| PathBuf::from("/tmp").join(private_tmp_dir_name()))
-        .join("stc-mint-agent")
+        .join("powd")
 }
 
 fn private_tmp_dir_name() -> String {
     #[cfg(unix)]
     {
-        format!("stc-mint-agent-{}", unsafe { libc::geteuid() })
+        format!("powd-{}", unsafe { libc::geteuid() })
     }
     #[cfg(not(unix))]
     {
-        "stc-mint-agent".to_string()
+        "powd".to_string()
     }
 }

@@ -1,4 +1,4 @@
-# `stc-mint-agent` 与 OpenClaw 集成
+# `powd` 与 OpenClaw 集成
 
 ## 目的
 
@@ -9,16 +9,16 @@
 - 包怎么安装和交付给用户
 - 为什么这样组织
 
-它是集成最佳实践的权威文档。具体命令和 API 参考见 `docs/stc-mint-agent-local-api.zh.md`。
+它是集成最佳实践的权威文档。具体命令和 API 参考见 `docs/powd-local-api.zh.md`。
 
 ## 最终组织
 
 支持的形态只有三类职责：
 
-- `stc-mint-agent`
+- `powd`
   - 唯一 daemon
   - 持有活跃 miner runtime、本地 API、event history 和内部 auto loop
-- `stc-mint-agentctl`
+- `powctl`
   - 唯一公开前端
   - 持有持久化用户 profile、CLI、TUI 和 MCP bridge
 - OpenClaw
@@ -31,11 +31,11 @@
 - 为了基础集成去改 OpenClaw 源码
 - 把主调度 loop 放进 skill prompt
 - 把主调度 loop 放进 OpenClaw plugin 代码
-- 在 `stc-mint-agent` 之外再加第二个 adapter daemon
+- 在 `powd` 之外再加第二个 adapter daemon
 
 ## 为什么 loop 放在 daemon
 
-主 loop 应该放在 `stc-mint-agent`，因为 daemon 已经持有长期运行时关注点：
+主 loop 应该放在 `powd`，因为 daemon 已经持有长期运行时关注点：
 
 - 当前活跃 miner runtime
 - reconnect 和 runtime 状态迁移
@@ -45,13 +45,13 @@
 
 这条 loop 是确定性代码，不是 LLM prompt loop。
 
-`stc-mint-agentctl` 负责用户意图和引导启动，但真正长期执行 miner 的还是 daemon。本地策略因此在 OpenClaw 关闭时仍然成立。
+`powctl` 负责用户意图和引导启动，但真正长期执行 miner 的还是 daemon。本地策略因此在 OpenClaw 关闭时仍然成立。
 
 ## 适配路径
 
 OpenClaw 的正式入口固定为：
 
-- `stc-mint-agentctl integrate mcp`
+- `powctl integrate mcp`
 
 这个命令启动 stdio MCP server。
 
@@ -86,21 +86,21 @@ MCP bridge 只暴露公开业务工具：
 
 面向用户的包包含：
 
-- `stc-mint-miner`
-- `stc-mint-agent`
-- `stc-mint-agentctl`
+- `powd-miner`
+- `powd`
+- `powctl`
 
 正常安装路径是：
 
 1. 安装包
 2. 配置一次钱包：
-   - `stc-mint-agentctl wallet set --wallet-address <addr> [--network main|halley]`
+   - `powctl wallet set --wallet-address <addr> [--network main|halley]`
 3. 如果要接 OpenClaw，则输出 MCP 片段：
-   - `stc-mint-agentctl integrate mcp-config`
+   - `powctl integrate mcp-config`
 4. 在 OpenClaw 里注册这个 MCP command
 5. 之后通过以下入口使用：
    - OpenClaw tools
-   - 或 `stc-mint-agentctl miner watch`
+   - 或 `powctl miner watch`
 
 默认值：
 

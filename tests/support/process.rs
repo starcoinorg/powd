@@ -55,16 +55,16 @@ impl Drop for StratumdProcess {
     }
 }
 
-pub fn resolve_cpu_miner_bin() -> Result<PathBuf> {
-    resolve_binary("stc-mint-miner")
+pub fn resolve_powd_miner_bin() -> Result<PathBuf> {
+    resolve_binary("powd-miner")
 }
 
-pub fn resolve_stc_mint_agent_bin() -> Result<PathBuf> {
-    resolve_binary("stc-mint-agent")
+pub fn resolve_powd_bin() -> Result<PathBuf> {
+    resolve_binary("powd")
 }
 
-pub fn resolve_stc_mint_agentctl_bin() -> Result<PathBuf> {
-    resolve_binary("stc-mint-agentctl")
+pub fn resolve_powctl_bin() -> Result<PathBuf> {
+    resolve_binary("powctl")
 }
 
 fn resolve_stratumd_bin() -> Result<PathBuf> {
@@ -148,7 +148,7 @@ pub fn temp_test_path(prefix: &str, suffix: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |value| value.as_nanos());
     std::env::temp_dir().join(format!(
-        "starcoin-cpu-miner-test-{}-{}-{}.{}",
+        "powd-test-{}-{}-{}.{}",
         prefix,
         std::process::id(),
         now,

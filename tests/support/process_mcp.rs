@@ -6,8 +6,8 @@ use tokio::sync::Mutex;
 
 pub static TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-pub fn resolve_stc_mint_agentctl_bin() -> Result<PathBuf> {
-    resolve_binary("stc-mint-agentctl")
+pub fn resolve_powctl_bin() -> Result<PathBuf> {
+    resolve_binary("powctl")
 }
 
 pub fn temp_test_path(prefix: &str, suffix: &str) -> PathBuf {
@@ -15,7 +15,7 @@ pub fn temp_test_path(prefix: &str, suffix: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |value| value.as_nanos());
     std::env::temp_dir().join(format!(
-        "starcoin-cpu-miner-test-{}-{}-{}.{}",
+        "powd-test-{}-{}-{}.{}",
         prefix,
         std::process::id(),
         now,

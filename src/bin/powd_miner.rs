@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use starcoin_cpu_miner::{Budget, MinerConfig, MinerRunner, Priority, StratumLogin};
+use powd::{Budget, MinerConfig, MinerRunner, Priority, StratumLogin};
 use starcoin_types::genesis_config::ConsensusStrategy;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "stc-mint-miner",
+    name = "powd-miner",
     about = "Direct CPU miner that connects to a Stratum pool without the local API"
 )]
 struct Cli {
@@ -22,7 +22,7 @@ struct Cli {
     pass: String,
     #[arg(
         long,
-        default_value = "stc-mint-miner",
+        default_value = "powd-miner",
         help = "Agent string sent during login"
     )]
     agent: String,

@@ -73,21 +73,13 @@ impl Display for WalletAgentError {
             Self::StateParse(err) => write!(f, "parse state file failed: {err}"),
             Self::Rpc(err) => err.fmt(f),
             Self::Reward(err) => err.fmt(f),
-            Self::Spawn(err) => write!(f, "spawn stc-mint-agent failed: {err}"),
+            Self::Spawn(err) => write!(f, "spawn powd failed: {err}"),
             Self::DaemonBinaryNotFound(path) => {
-                write!(
-                    f,
-                    "cannot find stc-mint-agent binary near {}",
-                    path.display()
-                )
+                write!(f, "cannot find powd binary near {}", path.display())
             }
-            Self::DaemonExited => f.write_str("stc-mint-agent exited before becoming ready"),
+            Self::DaemonExited => f.write_str("powd exited before becoming ready"),
             Self::DaemonStartTimeout(timeout) => {
-                write!(
-                    f,
-                    "stc-mint-agent did not become ready within {}s",
-                    timeout.as_secs()
-                )
+                write!(f, "powd did not become ready within {}s", timeout.as_secs())
             }
         }
     }
@@ -209,10 +201,7 @@ mod tests {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |value| value.as_nanos());
-        std::env::temp_dir().join(format!(
-            "stc-mint-agent-{label}-{}-{now}.json",
-            std::process::id()
-        ))
+        std::env::temp_dir().join(format!("powd-{label}-{}-{now}.json", std::process::id()))
     }
 
     #[test]

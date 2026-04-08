@@ -17,15 +17,15 @@ use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "stc-mint-agentctl",
-    about = "Operate a local stc-mint-agent daemon",
-    after_help = "Examples:\n  stc-mint-agentctl wallet set --wallet-address 0xabc...\n  stc-mint-agentctl wallet show\n  stc-mint-agentctl wallet reward\n  stc-mint-agentctl miner start\n  stc-mint-agentctl miner set-mode auto\n  stc-mint-agentctl miner watch\n  stc-mint-agentctl integrate doctor\n  stc-mint-agentctl integrate mcp-config"
+    name = "powctl",
+    about = "Operate a local powd daemon",
+    after_help = "Examples:\n  powctl wallet set --wallet-address 0xabc...\n  powctl wallet show\n  powctl wallet reward\n  powctl miner start\n  powctl miner set-mode auto\n  powctl miner watch\n  powctl integrate doctor\n  powctl integrate mcp-config"
 )]
 pub struct AgentCliArgs {
     #[arg(
         long,
         global = true,
-        help = "Unix socket path for the local stc-mint-agent daemon"
+        help = "Unix socket path for the local powd daemon"
     )]
     socket: Option<PathBuf>,
     #[arg(

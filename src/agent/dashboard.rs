@@ -216,7 +216,7 @@ fn render_dashboard(
 fn render_header() -> Paragraph<'static> {
     Paragraph::new(vec![
         Line::from(vec![Span::styled(
-            "stc-mint-agent dashboard",
+            "powd dashboard",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -297,11 +297,10 @@ fn render_overview(state: &DashboardState) -> Paragraph<'static> {
         ],
     };
     Paragraph::new(lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(Span::styled("Overview", Style::default().fg(Color::LightCyan))),
-        )
+        .block(Block::default().borders(Borders::ALL).title(Span::styled(
+            "Overview",
+            Style::default().fg(Color::LightCyan),
+        )))
         .wrap(Wrap { trim: true })
 }
 
@@ -370,11 +369,10 @@ fn render_metrics(state: &DashboardState) -> Paragraph<'static> {
         )])],
     };
     Paragraph::new(lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(Span::styled("Metrics", Style::default().fg(Color::LightCyan))),
-        )
+        .block(Block::default().borders(Borders::ALL).title(Span::styled(
+            "Metrics",
+            Style::default().fg(Color::LightCyan),
+        )))
         .wrap(Wrap { trim: true })
 }
 
@@ -389,20 +387,18 @@ fn render_events(state: &DashboardState) -> List<'static> {
             .events
             .iter()
             .cloned()
-            .map(|event| ListItem::new(Line::from(vec![Span::styled(
-                event.clone(),
-                event_style(&event),
-            )])))
+            .map(|event| {
+                ListItem::new(Line::from(vec![Span::styled(
+                    event.clone(),
+                    event_style(&event),
+                )]))
+            })
             .collect::<Vec<_>>()
     };
-    List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(
-                "Recent Events",
-                Style::default().fg(Color::LightCyan),
-            )),
-    )
+    List::new(items).block(Block::default().borders(Borders::ALL).title(Span::styled(
+        "Recent Events",
+        Style::default().fg(Color::LightCyan),
+    )))
 }
 
 fn render_footer(state: &DashboardState) -> Paragraph<'static> {
@@ -414,12 +410,11 @@ fn render_footer(state: &DashboardState) -> Paragraph<'static> {
         message.clone(),
         footer_style(&message),
     )]))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(Span::styled("Status", Style::default().fg(Color::LightCyan))),
-        )
-        .wrap(Wrap { trim: true })
+    .block(Block::default().borders(Borders::ALL).title(Span::styled(
+        "Status",
+        Style::default().fg(Color::LightCyan),
+    )))
+    .wrap(Wrap { trim: true })
 }
 
 fn render_wallet_popup(state: &DashboardState) -> Paragraph<'static> {
@@ -440,11 +435,10 @@ fn render_wallet_popup(state: &DashboardState) -> Paragraph<'static> {
             Span::styled(input, Style::default().fg(Color::White)),
         ]),
     ])
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled("Wallet", Style::default().fg(Color::LightCyan))),
-    )
+    .block(Block::default().borders(Borders::ALL).title(Span::styled(
+        "Wallet",
+        Style::default().fg(Color::LightCyan),
+    )))
     .wrap(Wrap { trim: true })
 }
 
@@ -496,7 +490,9 @@ fn serde_name<T: serde::Serialize>(value: &T) -> String {
 
 fn state_style(snapshot: &MinerSnapshot) -> Style {
     match serde_name(&snapshot.state).as_str() {
-        "running" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        "running" => Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD),
         "starting" => Style::default().fg(Color::Yellow),
         "paused" => Style::default().fg(Color::LightYellow),
         "reconnecting" => Style::default().fg(Color::Magenta),

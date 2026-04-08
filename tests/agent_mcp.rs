@@ -5,7 +5,7 @@ mod process;
 
 use anyhow::{Context, Result};
 use fake_reward_api::FakeRewardApi;
-use process::{resolve_stc_mint_agentctl_bin, temp_test_path, TEST_MUTEX};
+use process::{resolve_powctl_bin, temp_test_path, TEST_MUTEX};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -202,10 +202,10 @@ async fn spawn_mcp(
     socket_path: &PathBuf,
     reward_api_base: &str,
 ) -> Result<Child> {
-    let ctl_bin = resolve_stc_mint_agentctl_bin()?;
+    let ctl_bin = resolve_powctl_bin()?;
     let child = Command::new(ctl_bin)
-        .env("STC_MINT_AGENT_STATE_PATH", state_path)
-        .env("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base)
+        .env("POWD_STATE_PATH", state_path)
+        .env("POWD_MAIN_REWARD_API", reward_api_base)
         .arg("--socket")
         .arg(socket_path)
         .arg("integrate")
@@ -214,7 +214,7 @@ async fn spawn_mcp(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .context("spawn stc-mint-agentctl integrate mcp failed")?;
+        .context("spawn powctl integrate mcp failed")?;
     Ok(child)
 }
 

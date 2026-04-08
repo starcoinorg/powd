@@ -1,9 +1,9 @@
+use crate::protocol::stratum_rpc::{ShareRequest, StratumJob, StratumJobResponse};
+use crate::target_hex_to_difficulty;
 use crate::types::{JobId, WorkerId, WorkerName};
 use anyhow::Result;
 use starcoin_consensus::difficult_to_target;
 use starcoin_crypto::HashValue;
-use starcoin_mining_pool::stratum_rpc::{ShareRequest, StratumJob, StratumJobResponse};
-use starcoin_mining_pool::target_hex_to_difficulty;
 use starcoin_types::block::BlockHeaderExtra;
 use starcoin_types::genesis_config::ConsensusStrategy;
 use starcoin_types::U256;

@@ -1,21 +1,21 @@
-# `stc-mint-agent` Local API
+# `powd` Local API
 
 ## Scope
 
-This document describes the currently supported local surfaces around `stc-mint-agent`:
+This document describes the currently supported local surfaces around `powd`:
 
-- the public CLI exposed by `stc-mint-agentctl`
-- the MCP tool surface exposed by `stc-mint-agentctl integrate mcp`
+- the public CLI exposed by `powctl`
+- the MCP tool surface exposed by `powctl integrate mcp`
 - the daemon-private Unix socket JSON-RPC
 - the stable status fields that local callers can rely on
 
-For the broader OpenClaw integration rationale, see `docs/stc-mint-agent-openclaw-integration.en.md`.
+For the broader OpenClaw integration rationale, see `docs/powd-openclaw-integration.en.md`.
 
 ## User model
 
-The public entrypoint is always `stc-mint-agentctl`.
+The public entrypoint is always `powctl`.
 
-The persisted user profile is owned by `stc-mint-agentctl`, not by the daemon. It contains:
+The persisted user profile is owned by `powctl`, not by the daemon. It contains:
 
 - `wallet_address`
 - `worker_id`
@@ -36,13 +36,13 @@ The following values are derived inside the daemon and are not persisted:
 
 ## Public CLI
 
-`stc-mint-agentctl` is the only public human/script entrypoint.
+`powctl` is the only public human/script entrypoint.
 
 ### Wallet commands
 
-- `stc-mint-agentctl wallet set --wallet-address <addr> [--network main|halley]`
-- `stc-mint-agentctl wallet show`
-- `stc-mint-agentctl wallet reward`
+- `powctl wallet set --wallet-address <addr> [--network main|halley]`
+- `powctl wallet show`
+- `powctl wallet reward`
 
 Semantics:
 
@@ -57,13 +57,13 @@ Semantics:
 
 ### Miner commands
 
-- `stc-mint-agentctl miner status`
-- `stc-mint-agentctl miner start`
-- `stc-mint-agentctl miner stop`
-- `stc-mint-agentctl miner pause`
-- `stc-mint-agentctl miner resume`
-- `stc-mint-agentctl miner set-mode <auto|conservative|idle|balanced|aggressive>`
-- `stc-mint-agentctl miner watch`
+- `powctl miner status`
+- `powctl miner start`
+- `powctl miner stop`
+- `powctl miner pause`
+- `powctl miner resume`
+- `powctl miner set-mode <auto|conservative|idle|balanced|aggressive>`
+- `powctl miner watch`
 
 Mode semantics:
 
@@ -79,9 +79,9 @@ Mode semantics:
 
 ### Integration commands
 
-- `stc-mint-agentctl integrate doctor`
-- `stc-mint-agentctl integrate mcp-config`
-- `stc-mint-agentctl integrate mcp`
+- `powctl integrate doctor`
+- `powctl integrate mcp-config`
+- `powctl integrate mcp`
 
 Semantics:
 
@@ -91,7 +91,7 @@ Semantics:
 
 ## MCP tool surface
 
-`stc-mint-agentctl integrate mcp` exposes these business tools:
+`powctl integrate mcp` exposes these business tools:
 
 - `wallet_set`
 - `wallet_show`
@@ -122,7 +122,7 @@ CLI and MCP share the same underlying business commands. They are different tran
 
 ## Daemon-private JSON-RPC
 
-`stc-mint-agent` serves a daemon-private Unix socket JSON-RPC. It is used by `stc-mint-agentctl`, the dashboard, and diagnostics.
+`powd` serves a daemon-private Unix socket JSON-RPC. It is used by `powctl`, the dashboard, and diagnostics.
 
 Current methods:
 
@@ -150,12 +150,12 @@ The daemon derives `login`, `pool`, `pass`, and `consensus_strategy` from that p
 
 ## Startup model
 
-`stc-mint-agent` starts blank. It does not accept public business arguments such as `--login` or `--pool`.
+`powd` starts blank. It does not accept public business arguments such as `--login` or `--pool`.
 
-For any `stc-mint-agentctl` command that needs the daemon:
+For any `powctl` command that needs the daemon:
 
 1. `ctl` loads the persisted profile
-2. if the daemon is missing, `ctl` starts a blank `stc-mint-agent`
+2. if the daemon is missing, `ctl` starts a blank `powd`
 3. `ctl` calls `daemon.configure(profile)`
 4. `ctl` performs the requested business action
 
@@ -202,7 +202,7 @@ Semantics:
 
 ## TUI
 
-`stc-mint-agentctl miner watch` is the human-facing dashboard.
+`powctl miner watch` is the human-facing dashboard.
 
 It shows:
 

@@ -64,7 +64,7 @@ pub async fn run(args: AgentArgs) -> Result<()> {
                 _ = interval.tick() => {
                     if let Err(err) = auto_state.tick_auto().await {
                         starcoin_logger::prelude::warn!(
-                            target: "stc_mint_agent",
+                            target: "powd",
                             "auto loop tick failed: {err}"
                         );
                     }
@@ -84,7 +84,7 @@ pub async fn run(args: AgentArgs) -> Result<()> {
                 let shutdown = shutdown.clone();
                 tokio::spawn(async move {
                     if let Err(err) = serve_connection(stream, state, shutdown).await {
-                        starcoin_logger::prelude::warn!(target: "stc_mint_agent", "connection failed: {err}");
+                        starcoin_logger::prelude::warn!(target: "powd", "connection failed: {err}");
                     }
                 });
             }

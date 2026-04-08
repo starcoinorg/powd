@@ -158,7 +158,7 @@ impl McpServer {
                     "protocolVersion": MCP_PROTOCOL_VERSION,
                     "capabilities": { "tools": {} },
                     "serverInfo": {
-                        "name": "stc-mint-agentctl",
+                        "name": "powctl",
                         "version": env!("CARGO_PKG_VERSION"),
                     }
                 }),

@@ -1,4 +1,4 @@
-# `stc-mint-agent` 身份与最小协议
+# `powd` 身份与最小协议
 
 ## 1. 文档目的
 
@@ -18,7 +18,7 @@
 - `wallet_address`
   - 只负责收款
 - `worker_name`
-  - 直接作为 `stc-mint-agent` 的本地身份
+  - 直接作为 `powd` 的本地身份
 
 因此，agent 侧登录继续沿用现有格式：
 
@@ -47,7 +47,7 @@
 
 `worker_name` 直接作为本地身份。
 
-它由 `stc-mint-agent` 首次启动时生成，并在本地持久化。后续重启继续复用，不应每次启动都变化。
+它由 `powd` 首次启动时生成，并在本地持久化。后续重启继续复用，不应每次启动都变化。
 
 这也是为什么 agent 侧不能把 `worker_name` 当纯显示标签：它需要承担稳定 identity。
 
@@ -63,7 +63,7 @@ ASIC 那侧走标准 Stratum 协议，不适合再叠私有握手。agent 侧不
 
 最小流程如下：
 
-1. `stc-mint-agent` 连接 agent 专用 `stratumd`
+1. `powd` 连接 agent 专用 `stratumd`
 2. 服务端返回 challenge
 3. 客户端返回：
    - `worker_name`
@@ -85,7 +85,7 @@ ASIC 那侧走标准 Stratum 协议，不适合再叠私有握手。agent 侧不
 
 ## 5. 边界
 
-### 5.1 `stc-mint-agent` 负责
+### 5.1 `powd` 负责
 
 - 生成并持久化 `worker_name`
 - 生成并持久化 `agent_keypair`

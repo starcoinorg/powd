@@ -2,10 +2,10 @@
 
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
+use powd::difficulty_to_target_hex;
+use powd::protocol::codec::JsonStreamCodec;
+use powd::protocol::stratum_rpc::StratumJob;
 use serde_json::json;
-use starcoin_mining_pool::codec::JsonStreamCodec;
-use starcoin_mining_pool::difficulty_to_target_hex;
-use starcoin_mining_pool::stratum_rpc::StratumJob;
 use starcoin_types::U256;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{

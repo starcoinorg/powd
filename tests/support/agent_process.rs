@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
+use powd::agent::{AgentConnection, MintProfile};
+use powd::{BudgetMode, MintNetwork, WalletAddress, WorkerId};
 use serde_json::json;
-use starcoin_cpu_miner::agent::{AgentConnection, MintProfile};
-use starcoin_cpu_miner::{BudgetMode, MintNetwork, WalletAddress, WorkerId};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use tokio::net::UnixStream;
 
-use super::process::{resolve_stc_mint_agent_bin, temp_test_path};
+use super::process::{resolve_powd_bin, temp_test_path};
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -19,7 +19,7 @@ pub struct AgentProcess {
 
 impl AgentProcess {
     pub async fn spawn(pool: &str, strategy: &str, extra: &[&str]) -> Result<Self> {
-        let bin = resolve_stc_mint_agent_bin()?;
+        let bin = resolve_powd_bin()?;
         let socket_path = temp_test_path("agent", "sock");
         let state_path = temp_test_path("agent", "json");
         if socket_path.exists() {
@@ -35,8 +35,8 @@ impl AgentProcess {
             .context("write agent test state failed")?;
 
         let mut cmd = Command::new(bin);
-        cmd.env("STC_MINT_AGENT_MAIN_POOL", pool)
-            .env("STC_MINT_AGENT_MAIN_STRATEGY", strategy)
+        cmd.env("POWD_MAIN_POOL", pool)
+            .env("POWD_MAIN_STRATEGY", strategy)
             .arg("--socket")
             .arg(&socket_path)
             .stdout(Stdio::null())
@@ -45,7 +45,7 @@ impl AgentProcess {
             cmd.arg(arg);
         }
 
-        let mut child = cmd.spawn().context("spawn stc-mint-agent failed")?;
+        let mut child = cmd.spawn().context("spawn powd failed")?;
         wait_for_socket(&mut child, &socket_path, Duration::from_secs(6)).await?;
         let mut rpc = AgentConnection::connect(&socket_path, RPC_TIMEOUT).await?;
         let _: serde_json::Value = rpc
@@ -93,13 +93,13 @@ async fn wait_for_socket(child: &mut Child, path: &Path, timeout: Duration) -> R
         }
         if let Some(status) = child.try_wait()? {
             return Err(anyhow::anyhow!(
-                "stc-mint-agent exited before socket ready, status: {}",
+                "powd exited before socket ready, status: {}",
                 status
             ));
         }
         if start.elapsed() > timeout {
             return Err(anyhow::anyhow!(
-                "wait stc-mint-agent socket timeout: {}",
+                "wait powd socket timeout: {}",
                 path.display()
             ));
         }

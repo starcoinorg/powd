@@ -1,5 +1,5 @@
 use clap::Parser;
-use starcoin_cpu_miner::agent::{run_cli, AgentCliArgs};
+use powd::agent::{run_cli, AgentCliArgs};
 use std::process::ExitCode;
 
 #[tokio::main]

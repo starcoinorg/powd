@@ -1,41 +1,39 @@
 [package]
-name = "starcoin-cpu-miner"
+name = "powd"
 version = "0.1.0"
 edition = "2021"
-authors = ["Starcoin Core Dev <dev@starcoin.org>"]
-homepage = "https://starcoin.org"
+authors = ["powd contributors"]
 license = "Apache-2.0"
 publish = false
-repository = "https://github.com/starcoinorg/starcoin"
 rust-version = "1.86"
 
 [[bin]]
-name = "stc-mint-miner"
-path = "src/bin/stc_mint_miner.rs"
+name = "powd-miner"
+path = "src/bin/powd_miner.rs"
 
 [[bin]]
-name = "stc-mint-agent"
-path = "src/bin/stc_mint_agent.rs"
+name = "powd"
+path = "src/bin/powd.rs"
 
 [[bin]]
-name = "stc-mint-agentctl"
-path = "src/bin/stc_mint_agentctl.rs"
+name = "powctl"
+path = "src/bin/powctl.rs"
 
 [dependencies]
 anyhow = "~1"
+bytes = "1"
 clap = { version = "4.5.47", features = ["derive"] }
 crossterm = "0.26.1"
 futures = "0.3.12"
 hex = "0.4"
 libc = "0.2"
 ratatui = { version = "0.26.3", features = ["crossterm"] }
-ureq = { version = "3.3.0", default-features = false, features = ["native-tls"] }
+ureq = { version = "2.12.1", default-features = false, features = ["native-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "~1", features = ["arbitrary_precision"] }
 sysinfo = "0.36.1"
 tokio = { version = "^1", features = ["full"] }
 tokio-util = "0.7.18"
-starcoin-mining-pool = { path = ".." }
 starcoin-consensus = { git = "https://github.com/starcoinorg/starcoin", rev = "d1e867f5b17454722444dc553341f8d9d7fe2167" }
 starcoin-logger = { git = "https://github.com/starcoinorg/starcoin", rev = "d1e867f5b17454722444dc553341f8d9d7fe2167" }
 starcoin-types = { git = "https://github.com/starcoinorg/starcoin", rev = "d1e867f5b17454722444dc553341f8d9d7fe2167", package = "starcoin-vm1-types" }
@@ -45,3 +43,7 @@ starcoin-crypto = { git = "https://github.com/starcoinorg/starcoin-crypto", rev 
 jsonrpc-core = "18"
 jsonrpc-ws-server = "18"
 once_cell = "1.13.0"
+
+[patch.crates-io]
+x25519-dalek = { git = "https://github.com/aptos-labs/x25519-dalek", branch = "zeroize_v1" }
+merlin = { git = "https://github.com/aptos-labs/merlin" }

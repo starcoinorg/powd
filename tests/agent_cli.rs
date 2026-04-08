@@ -11,7 +11,7 @@ use agent_process::AgentProcess;
 use anyhow::{Context, Result};
 use fake_pool::SilentKeepalivePool;
 use fake_reward_api::FakeRewardApi;
-use process::{resolve_stc_mint_agent_bin, resolve_stc_mint_agentctl_bin, TEST_MUTEX};
+use process::{resolve_powctl_bin, resolve_powd_bin, TEST_MUTEX};
 use serde_json::Value;
 use std::process::Command;
 
@@ -25,10 +25,7 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
 
     let setup = run_ctl_with_env_json(
         &socket_path,
-        &[(
-            "STC_MINT_AGENT_STATE_PATH",
-            state_path.to_string_lossy().as_ref(),
-        )],
+        &[("POWD_STATE_PATH", state_path.to_string_lossy().as_ref())],
         &["wallet", "set", "--wallet-address", wallet],
     )
     .await?;
@@ -42,10 +39,7 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
 
     let show = run_ctl_with_env_json(
         &socket_path,
-        &[(
-            "STC_MINT_AGENT_STATE_PATH",
-            state_path.to_string_lossy().as_ref(),
-        )],
+        &[("POWD_STATE_PATH", state_path.to_string_lossy().as_ref())],
         &["wallet", "show"],
     )
     .await?;
@@ -55,10 +49,7 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
 
     let doctor = run_ctl_with_env_json(
         &socket_path,
-        &[(
-            "STC_MINT_AGENT_STATE_PATH",
-            state_path.to_string_lossy().as_ref(),
-        )],
+        &[("POWD_STATE_PATH", state_path.to_string_lossy().as_ref())],
         &["integrate", "doctor"],
     )
     .await?;
@@ -69,15 +60,12 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
 
     let mcp_config = run_ctl_with_env_json(
         &socket_path,
-        &[(
-            "STC_MINT_AGENT_STATE_PATH",
-            state_path.to_string_lossy().as_ref(),
-        )],
+        &[("POWD_STATE_PATH", state_path.to_string_lossy().as_ref())],
         &["integrate", "mcp-config"],
     )
     .await?;
     assert_eq!(
-        mcp_config["mcpServers"]["stc-mint"]["args"],
+        mcp_config["mcpServers"]["powd"]["args"],
         serde_json::json!(["integrate", "mcp"])
     );
 
@@ -155,15 +143,9 @@ async fn agent_cli_wallet_reward_reads_external_account_totals() -> Result<()> {
     let _setup = run_ctl_with_env_json(
         &socket_path,
         &[
-            (
-                "STC_MINT_AGENT_STATE_PATH",
-                state_path.to_string_lossy().as_ref(),
-            ),
-            ("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base.as_str()),
-            (
-                "STC_MINT_AGENT_HALLEY_REWARD_API",
-                halley_reward_api_base.as_str(),
-            ),
+            ("POWD_STATE_PATH", state_path.to_string_lossy().as_ref()),
+            ("POWD_MAIN_REWARD_API", reward_api_base.as_str()),
+            ("POWD_HALLEY_REWARD_API", halley_reward_api_base.as_str()),
         ],
         &[
             "wallet",
@@ -177,15 +159,9 @@ async fn agent_cli_wallet_reward_reads_external_account_totals() -> Result<()> {
     let reward = run_ctl_with_env_json(
         &socket_path,
         &[
-            (
-                "STC_MINT_AGENT_STATE_PATH",
-                state_path.to_string_lossy().as_ref(),
-            ),
-            ("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base.as_str()),
-            (
-                "STC_MINT_AGENT_HALLEY_REWARD_API",
-                halley_reward_api_base.as_str(),
-            ),
+            ("POWD_STATE_PATH", state_path.to_string_lossy().as_ref()),
+            ("POWD_MAIN_REWARD_API", reward_api_base.as_str()),
+            ("POWD_HALLEY_REWARD_API", halley_reward_api_base.as_str()),
         ],
         &["wallet", "reward"],
     )
@@ -206,15 +182,9 @@ async fn agent_cli_wallet_reward_reads_external_account_totals() -> Result<()> {
     let _halley = run_ctl_with_env_json(
         &socket_path,
         &[
-            (
-                "STC_MINT_AGENT_STATE_PATH",
-                state_path.to_string_lossy().as_ref(),
-            ),
-            ("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base.as_str()),
-            (
-                "STC_MINT_AGENT_HALLEY_REWARD_API",
-                halley_reward_api_base.as_str(),
-            ),
+            ("POWD_STATE_PATH", state_path.to_string_lossy().as_ref()),
+            ("POWD_MAIN_REWARD_API", reward_api_base.as_str()),
+            ("POWD_HALLEY_REWARD_API", halley_reward_api_base.as_str()),
         ],
         &[
             "wallet",
@@ -229,15 +199,9 @@ async fn agent_cli_wallet_reward_reads_external_account_totals() -> Result<()> {
     let halley_reward = run_ctl_with_env_json(
         &socket_path,
         &[
-            (
-                "STC_MINT_AGENT_STATE_PATH",
-                state_path.to_string_lossy().as_ref(),
-            ),
-            ("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base.as_str()),
-            (
-                "STC_MINT_AGENT_HALLEY_REWARD_API",
-                halley_reward_api_base.as_str(),
-            ),
+            ("POWD_STATE_PATH", state_path.to_string_lossy().as_ref()),
+            ("POWD_MAIN_REWARD_API", reward_api_base.as_str()),
+            ("POWD_HALLEY_REWARD_API", halley_reward_api_base.as_str()),
         ],
         &["wallet", "reward"],
     )
@@ -257,12 +221,12 @@ async fn agent_cli_wallet_reward_reads_external_account_totals() -> Result<()> {
 async fn agent_cli_help_shows_wallet_miner_integrate_and_auto_mode() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
-    let ctl_bin = resolve_stc_mint_agentctl_bin()?;
+    let ctl_bin = resolve_powctl_bin()?;
 
     let top_help = Command::new(&ctl_bin)
         .arg("--help")
         .output()
-        .context("run stc-mint-agentctl --help failed")?;
+        .context("run powctl --help failed")?;
     assert!(top_help.status.success());
     let top_stdout = String::from_utf8(top_help.stdout).context("decode top help failed")?;
     assert!(top_stdout.contains("wallet"));
@@ -294,7 +258,7 @@ async fn agent_cli_help_shows_wallet_miner_integrate_and_auto_mode() -> Result<(
     let set_mode_help = Command::new(&ctl_bin)
         .args(["miner", "set-mode", "--help"])
         .output()
-        .context("run stc-mint-agentctl miner set-mode --help failed")?;
+        .context("run powctl miner set-mode --help failed")?;
     assert!(set_mode_help.status.success());
     let set_mode_stdout =
         String::from_utf8(set_mode_help.stdout).context("decode set-mode help failed")?;
@@ -304,15 +268,14 @@ async fn agent_cli_help_shows_wallet_miner_integrate_and_auto_mode() -> Result<(
     assert!(set_mode_stdout.contains("daemon adjusts threads and cpu_percent"));
     assert!(set_mode_stdout.contains("conservative fixed preset"));
 
-    let daemon_help = Command::new(resolve_stc_mint_agent_bin()?)
+    let daemon_help = Command::new(resolve_powd_bin()?)
         .arg("--help")
         .output()
-        .context("run stc-mint-agent --help failed")?;
+        .context("run powd --help failed")?;
     assert!(daemon_help.status.success());
-    let daemon_stdout =
-        String::from_utf8(daemon_help.stdout).context("decode stc-mint-agent help failed")?;
-    assert!(daemon_stdout.contains("Internal daemon for stc-mint-agentctl"));
-    assert!(daemon_stdout.contains("Use `stc-mint-agentctl wallet set`"));
+    let daemon_stdout = String::from_utf8(daemon_help.stdout).context("decode powd help failed")?;
+    assert!(daemon_stdout.contains("Internal daemon for powctl"));
+    assert!(daemon_stdout.contains("Use `powctl wallet set`"));
     assert!(!daemon_stdout.contains("--login"));
     assert!(!daemon_stdout.contains("--pool"));
     Ok(())
@@ -326,7 +289,7 @@ async fn agent_cli_status_reports_requested_mode_effective_budget_and_auto_state
     let agent = AgentProcess::spawn(&pool.pool_addr().to_string(), "cryptonight", &[]).await?;
 
     let state_path = agent.state_path().to_string_lossy().to_string();
-    let envs = [("STC_MINT_AGENT_STATE_PATH", state_path.as_str())];
+    let envs = [("POWD_STATE_PATH", state_path.as_str())];
 
     let status_text =
         run_ctl_with_env_text(agent.socket_path(), &envs, &["miner", "status"]).await?;
@@ -354,7 +317,7 @@ async fn agent_cli_lifecycle_and_set_mode_work() -> Result<()> {
     let agent = AgentProcess::spawn(&pool.pool_addr().to_string(), "keccak", &[]).await?;
 
     let state_path = agent.state_path().to_string_lossy().to_string();
-    let envs = [("STC_MINT_AGENT_STATE_PATH", state_path.as_str())];
+    let envs = [("POWD_STATE_PATH", state_path.as_str())];
 
     let started = run_ctl_with_env_json(agent.socket_path(), &envs, &["miner", "start"]).await?;
     assert!(matches!(
@@ -411,10 +374,7 @@ async fn agent_cli_rejects_invalid_arguments() -> Result<()> {
 
     let invalid_wallet = run_ctl_with_env(
         &socket_path,
-        &[(
-            "STC_MINT_AGENT_STATE_PATH",
-            state_path.to_string_lossy().as_ref(),
-        )],
+        &[("POWD_STATE_PATH", state_path.to_string_lossy().as_ref())],
         &["wallet", "set", "--wallet-address", ""],
         false,
     )
@@ -482,7 +442,7 @@ async fn run_ctl_with_env(
     args: &[&str],
     json: bool,
 ) -> Result<std::process::Output> {
-    let ctl_bin = resolve_stc_mint_agentctl_bin()?;
+    let ctl_bin = resolve_powctl_bin()?;
     let mut command = Command::new(ctl_bin);
     command.arg("--socket").arg(socket_path);
     for (key, value) in envs {
@@ -491,9 +451,6 @@ async fn run_ctl_with_env(
     if json {
         command.arg("--json");
     }
-    let output = command
-        .args(args)
-        .output()
-        .context("run stc-mint-agentctl failed")?;
+    let output = command.args(args).output().context("run powctl failed")?;
     Ok(output)
 }

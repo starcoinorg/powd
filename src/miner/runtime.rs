@@ -9,10 +9,10 @@ use super::{
     MinerSnapshot, MinerState, RunnerError,
 };
 use crate::mining::job::{MiningJob, SolvedShare};
+use crate::protocol::stratum_rpc::LoginRequest;
 use crate::stratum::client::{ClientEvent, LoginError, StratumClient};
 use anyhow::Context;
 use starcoin_logger::prelude::warn;
-use starcoin_mining_pool::stratum_rpc::LoginRequest;
 use starcoin_types::genesis_config::ConsensusStrategy;
 use std::sync::{atomic::AtomicU64, Arc};
 use std::time::{Duration, Instant};
