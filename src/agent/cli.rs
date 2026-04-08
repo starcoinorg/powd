@@ -19,7 +19,7 @@ use std::time::Duration;
 #[command(
     name = "powctl",
     about = "Operate a local powd daemon",
-    after_help = "Examples:\n  powctl wallet set --wallet-address 0xabc...\n  powctl wallet show\n  powctl wallet reward\n  powctl miner start\n  powctl miner set-mode auto\n  powctl miner watch\n  powctl integrate doctor\n  powctl integrate mcp-config"
+    after_help = "Examples:\n  powctl wallet set --wallet-address 0xabc...\n  powctl wallet show\n  powctl wallet reward\n  powctl miner start\n  powctl miner set-mode auto\n  powctl miner watch\n  powctl doctor\n  powctl mcp config"
 )]
 pub struct AgentCliArgs {
     #[arg(
@@ -57,10 +57,14 @@ enum AgentCliCommand {
         #[command(subcommand)]
         command: MinerCliCommand,
     },
-    #[command(about = "Diagnostics and host integration entrypoints")]
-    Integrate {
+    #[command(
+        about = "Check wallet configuration, daemon reachability, and current runtime state"
+    )]
+    Doctor,
+    #[command(about = "Host-facing MCP configuration and server entrypoints")]
+    Mcp {
         #[command(subcommand)]
-        command: IntegrateCliCommand,
+        command: McpCliCommand,
     },
 }
 
@@ -128,21 +132,23 @@ enum MinerCliCommand {
 }
 
 #[derive(Subcommand, Debug)]
-enum IntegrateCliCommand {
-    #[command(
-        about = "Check wallet configuration, daemon reachability, and current runtime state"
-    )]
-    Doctor,
+enum McpCliCommand {
     #[command(
         about = "Print an OpenClaw MCP registration snippet for this machine",
         after_help = "Paste the emitted JSON into the OpenClaw MCP registration workflow."
     )]
-    McpConfig,
+    Config {
+        #[arg(
+            long,
+            help = "Emit just the single MCP server object for host CLIs such as `openclaw mcp set`"
+        )]
+        server_only: bool,
+    },
     #[command(
         about = "Run the stdio MCP server that OpenClaw launches",
         after_help = "This is a host integration entrypoint. It is not a normal business command for daily manual use."
     )]
-    Mcp,
+    Serve,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -211,9 +217,8 @@ async fn execute(args: AgentCliArgs) -> Result<(), CliError> {
     match command {
         AgentCliCommand::Wallet { command } => run_wallet_command(&agent, command, json).await,
         AgentCliCommand::Miner { command } => run_miner_command(&agent, command, json).await,
-        AgentCliCommand::Integrate { command } => {
-            run_integrate_command(&agent, command, json).await
-        }
+        AgentCliCommand::Doctor => run_doctor_command(&agent, json).await,
+        AgentCliCommand::Mcp { command } => run_mcp_command(&agent, command, json).await,
     }
 }
 
@@ -279,23 +284,24 @@ async fn run_miner_command(
     }
 }
 
-async fn run_integrate_command(
+async fn run_doctor_command(agent: &WalletAgent, json: bool) -> Result<(), CliError> {
+    let report = agent
+        .doctor()
+        .await
+        .map_err(|err| map_wallet_error(err, json))?;
+    print_json_or_text(&report, json, print_doctor_report);
+    Ok(())
+}
+
+async fn run_mcp_command(
     agent: &WalletAgent,
-    command: IntegrateCliCommand,
+    command: McpCliCommand,
     json: bool,
 ) -> Result<(), CliError> {
     match command {
-        IntegrateCliCommand::Doctor => {
-            let report = agent
-                .doctor()
-                .await
-                .map_err(|err| map_wallet_error(err, json))?;
-            print_json_or_text(&report, json, print_doctor_report);
-            Ok(())
-        }
-        IntegrateCliCommand::McpConfig => {
+        McpCliCommand::Config { server_only } => {
             let config = agent
-                .mcp_config()
+                .mcp_config(server_only)
                 .map_err(|err| map_wallet_error(err, json))?;
             if json {
                 println!(
@@ -310,7 +316,7 @@ async fn run_integrate_command(
             }
             Ok(())
         }
-        IntegrateCliCommand::Mcp => run_mcp(agent.clone())
+        McpCliCommand::Serve => run_mcp(agent.clone())
             .await
             .map_err(|err| CliError::new(4, format!("mcp server failed: {err}"), json)),
     }
@@ -350,7 +356,7 @@ fn map_wallet_error(err: WalletAgentError, json: bool) -> CliError {
         | WalletAgentError::StateParse(_)
         | WalletAgentError::Reward(_)
         | WalletAgentError::Spawn(_)
-        | WalletAgentError::DaemonBinaryNotFound(_)
+        | WalletAgentError::BinaryNotFound { .. }
         | WalletAgentError::DaemonExited
         | WalletAgentError::DaemonStartTimeout(_) => 4,
     };

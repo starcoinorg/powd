@@ -50,7 +50,7 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
     let doctor = run_ctl_with_env_json(
         &socket_path,
         &[("POWD_STATE_PATH", state_path.to_string_lossy().as_ref())],
-        &["integrate", "doctor"],
+        &["doctor"],
     )
     .await?;
     assert_eq!(doctor["wallet_configured"], true);
@@ -61,13 +61,31 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
     let mcp_config = run_ctl_with_env_json(
         &socket_path,
         &[("POWD_STATE_PATH", state_path.to_string_lossy().as_ref())],
-        &["integrate", "mcp-config"],
+        &["mcp", "config"],
     )
     .await?;
     assert_eq!(
         mcp_config["mcpServers"]["powd"]["args"],
-        serde_json::json!(["integrate", "mcp"])
+        serde_json::json!(["mcp", "serve"])
     );
+    assert_eq!(
+        mcp_config["mcpServers"]["powd"]["env"],
+        serde_json::json!({})
+    );
+    let command = mcp_config["mcpServers"]["powd"]["command"]
+        .as_str()
+        .context("mcp command should be a string")?;
+    assert!(std::path::Path::new(command).is_absolute());
+
+    let server_only = run_ctl_with_env_json(
+        &socket_path,
+        &[("POWD_STATE_PATH", state_path.to_string_lossy().as_ref())],
+        &["mcp", "config", "--server-only"],
+    )
+    .await?;
+    assert_eq!(server_only["args"], serde_json::json!(["mcp", "serve"]));
+    assert_eq!(server_only["env"], serde_json::json!({}));
+    assert!(server_only.get("mcpServers").is_none());
 
     let _ = std::fs::remove_file(state_path);
     Ok(())
@@ -218,7 +236,7 @@ async fn agent_cli_wallet_reward_reads_external_account_totals() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn agent_cli_help_shows_wallet_miner_integrate_and_auto_mode() -> Result<()> {
+async fn agent_cli_help_shows_wallet_miner_doctor_and_mcp_mode() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let ctl_bin = resolve_powctl_bin()?;
@@ -231,7 +249,8 @@ async fn agent_cli_help_shows_wallet_miner_integrate_and_auto_mode() -> Result<(
     let top_stdout = String::from_utf8(top_help.stdout).context("decode top help failed")?;
     assert!(top_stdout.contains("wallet"));
     assert!(top_stdout.contains("miner"));
-    assert!(top_stdout.contains("integrate"));
+    assert!(top_stdout.contains("doctor"));
+    assert!(top_stdout.contains("mcp"));
     assert!(!top_stdout.contains("governor"));
 
     let wallet_set_help = Command::new(&ctl_bin)
@@ -254,6 +273,15 @@ async fn agent_cli_help_shows_wallet_miner_integrate_and_auto_mode() -> Result<(
         String::from_utf8(wallet_reward_help.stdout).context("decode wallet reward help failed")?;
     assert!(wallet_reward_stdout.contains("external account query"));
     assert!(wallet_reward_stdout.contains("does not depend on the local miner daemon"));
+
+    let mcp_help = Command::new(&ctl_bin)
+        .args(["mcp", "--help"])
+        .output()
+        .context("run powctl mcp --help failed")?;
+    assert!(mcp_help.status.success());
+    let mcp_stdout = String::from_utf8(mcp_help.stdout).context("decode mcp help failed")?;
+    assert!(mcp_stdout.contains("config"));
+    assert!(mcp_stdout.contains("serve"));
 
     let set_mode_help = Command::new(&ctl_bin)
         .args(["miner", "set-mode", "--help"])

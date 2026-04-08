@@ -26,7 +26,20 @@ powctl miner watch
 OpenClaw integration goes through:
 
 ```bash
-powctl integrate mcp
+powctl mcp serve
+```
+
+To print the OpenClaw registration snippet:
+
+```bash
+powctl mcp config
+```
+
+For a repo-local clean OpenClaw verification shell:
+
+```bash
+nix develop .#openclaw
+scripts/openclaw-smoke.sh
 ```
 
 ## Docs

@@ -208,13 +208,13 @@ async fn spawn_mcp(
         .env("POWD_MAIN_REWARD_API", reward_api_base)
         .arg("--socket")
         .arg(socket_path)
-        .arg("integrate")
         .arg("mcp")
+        .arg("serve")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .context("spawn powctl integrate mcp failed")?;
+        .context("spawn powctl mcp serve failed")?;
     Ok(child)
 }
 

@@ -5,7 +5,7 @@
 This document describes the currently supported local surfaces around `powd`:
 
 - the public CLI exposed by `powctl`
-- the MCP tool surface exposed by `powctl integrate mcp`
+- the MCP tool surface exposed by `powctl mcp serve`
 - the daemon-private Unix socket JSON-RPC
 - the stable status fields that local callers can rely on
 
@@ -77,21 +77,24 @@ Mode semantics:
 
 `pause` and `stop` do not discard `auto`. They place auto into a held state. `resume` and `start` clear that hold.
 
-### Integration commands
+### Host integration commands
 
-- `powctl integrate doctor`
-- `powctl integrate mcp-config`
-- `powctl integrate mcp`
+- `powctl doctor`
+- `powctl mcp config`
+- `powctl mcp config --server-only`
+- `powctl mcp serve`
 
 Semantics:
 
 - `doctor` checks persisted wallet configuration, daemon reachability, and current runtime state
-- `mcp-config` prints the OpenClaw MCP registration snippet
-- `mcp` runs the stdio MCP server that OpenClaw launches
+- `mcp config` prints the standard `mcpServers` JSON snippet for this machine
+- `mcp config --server-only` prints just the single MCP server object for `openclaw mcp set`
+- `mcp serve` runs the stdio MCP server that OpenClaw launches
+- `mcp config` always emits an absolute `powctl` path and a stable `env: {}`
 
 ## MCP tool surface
 
-`powctl integrate mcp` exposes these business tools:
+`powctl mcp serve` exposes these business tools:
 
 - `wallet_set`
 - `wallet_show`
@@ -115,7 +118,7 @@ It does not expose:
 - raw `budget.set`
 - raw `events.stream`
 - `doctor`
-- `mcp-config`
+- `mcp config`
 - daemon-private setup/reconfigure details
 
 CLI and MCP share the same underlying business commands. They are different transports, not different state machines.

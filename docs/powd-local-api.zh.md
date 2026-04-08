@@ -5,7 +5,7 @@
 这份文档描述当前 `powd` 周边已经支持的本地接口：
 
 - `powctl` 暴露的公开 CLI
-- `powctl integrate mcp` 暴露的 MCP 工具面
+- `powctl mcp serve` 暴露的 MCP 工具面
 - daemon 私有的 Unix socket JSON-RPC
 - 本地调用方可依赖的稳定状态字段
 
@@ -77,21 +77,24 @@ mode 语义：
 
 `pause` 和 `stop` 不会丢掉 `auto`。它们只会让 auto 进入 held 状态；`resume` 和 `start` 会清除这个 hold。
 
-### Integrate 命令
+### Host integration 命令
 
-- `powctl integrate doctor`
-- `powctl integrate mcp-config`
-- `powctl integrate mcp`
+- `powctl doctor`
+- `powctl mcp config`
+- `powctl mcp config --server-only`
+- `powctl mcp serve`
 
 语义：
 
 - `doctor` 检查持久化钱包配置、daemon 可达性和当前运行状态
-- `mcp-config` 输出 OpenClaw MCP 注册片段
-- `mcp` 启动 OpenClaw 拉起的 stdio MCP server
+- `mcp config` 输出这台机器上的标准 `mcpServers` JSON 片段
+- `mcp config --server-only` 只输出单个 MCP server object，给 `openclaw mcp set` 直接使用
+- `mcp serve` 启动由 OpenClaw 拉起的 stdio MCP server
+- `mcp config` 总是输出绝对路径的 `powctl` 和稳定的 `env: {}`
 
 ## MCP 工具面
 
-`powctl integrate mcp` 暴露以下业务工具：
+`powctl mcp serve` 暴露以下业务工具：
 
 - `wallet_set`
 - `wallet_show`
@@ -115,7 +118,7 @@ reward 被刻意和 `miner_status` 分开：
 - 原始 `budget.set`
 - 原始 `events.stream`
 - `doctor`
-- `mcp-config`
+- `mcp config`
 - daemon 私有的初始化/重配置细节
 
 CLI 和 MCP 共用同一套底层业务命令。它们只是不同 transport，不是两套状态机。

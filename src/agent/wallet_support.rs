@@ -58,7 +58,10 @@ pub(crate) enum WalletAgentError {
     Rpc(AgentClientError),
     Reward(RewardError),
     Spawn(std::io::Error),
-    DaemonBinaryNotFound(PathBuf),
+    BinaryNotFound {
+        name: &'static str,
+        near: PathBuf,
+    },
     DaemonExited,
     DaemonStartTimeout(Duration),
 }
@@ -74,8 +77,8 @@ impl Display for WalletAgentError {
             Self::Rpc(err) => err.fmt(f),
             Self::Reward(err) => err.fmt(f),
             Self::Spawn(err) => write!(f, "spawn powd failed: {err}"),
-            Self::DaemonBinaryNotFound(path) => {
-                write!(f, "cannot find powd binary near {}", path.display())
+            Self::BinaryNotFound { name, near } => {
+                write!(f, "cannot find {name} binary near {}", near.display())
             }
             Self::DaemonExited => f.write_str("powd exited before becoming ready"),
             Self::DaemonStartTimeout(timeout) => {
@@ -104,7 +107,9 @@ pub(super) fn profile_with_defaults(wallet_address: WalletAddress) -> MintProfil
     }
 }
 
-pub(super) fn resolve_binary_from_current_exe(name: &str) -> Result<PathBuf, WalletAgentError> {
+pub(super) fn resolve_binary_from_current_exe(
+    name: &'static str,
+) -> Result<PathBuf, WalletAgentError> {
     if let Ok(bin) = std::env::var(format!("CARGO_BIN_EXE_{name}")) {
         return Ok(PathBuf::from(bin));
     }
@@ -130,7 +135,10 @@ pub(super) fn resolve_binary_from_current_exe(name: &str) -> Result<PathBuf, Wal
             return Ok(candidate);
         }
     }
-    Err(WalletAgentError::DaemonBinaryNotFound(current))
+    Err(WalletAgentError::BinaryNotFound {
+        name,
+        near: current,
+    })
 }
 
 pub(super) fn write_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
@@ -191,7 +199,7 @@ pub(super) async fn wait_for_daemon_ready(
 
 #[cfg(test)]
 mod tests {
-    use super::write_file_atomically;
+    use super::{resolve_binary_from_current_exe, write_file_atomically, WalletAgentError};
     use crate::agent::config::MintProfile;
     use crate::{BudgetMode, MintNetwork, WalletAddress, WorkerName};
     use std::path::PathBuf;
@@ -222,5 +230,18 @@ mod tests {
         assert_eq!(decoded.network, MintNetwork::Main);
         assert_eq!(decoded.wallet_address, WalletAddress::parse("0x1").unwrap());
         assert_eq!(decoded.worker_name, WorkerName::parse("agent1").unwrap());
+    }
+
+    #[test]
+    fn resolving_a_missing_sibling_binary_fails() {
+        let err = resolve_binary_from_current_exe("powctl-not-a-real-binary")
+            .expect_err("missing sibling binary should fail");
+        assert!(matches!(
+            err,
+            WalletAgentError::BinaryNotFound {
+                name: "powctl-not-a-real-binary",
+                ..
+            }
+        ));
     }
 }

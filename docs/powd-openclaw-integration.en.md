@@ -49,13 +49,28 @@ That loop is deterministic code, not an LLM prompt loop.
 
 ## Adaptation path
 
-The formal OpenClaw entrypoint is:
+The formal `powd` host entrypoints are:
 
-- `powctl integrate mcp`
+- `powctl mcp serve`
+- `powctl mcp config`
 
-This command runs a stdio MCP server.
+`powctl mcp serve` runs the stdio MCP server.
+
+`powctl mcp config` prints a standard local MCP config snippet with:
+
+- an absolute `powctl` path
+- `args = ["mcp", "serve"]`
+- `env = {}`
 
 OpenClaw only needs to register that command. It does not need to know the daemon's private socket protocol.
+
+For OpenClaw-managed saved config, the supported registration flow is:
+
+1. `powctl mcp config --server-only`
+2. `openclaw mcp set powd '<json>'`
+3. `openclaw mcp show powd --json`
+
+OpenClaw's `mcp set/show/list/unset` commands only manage saved config. They do not prove that the target MCP server is reachable right now.
 
 The MCP bridge exposes only the public business tools:
 
@@ -84,11 +99,12 @@ It intentionally hides:
 
 ## User-facing install path
 
-The user-facing package contains:
+The OpenClaw-facing package contains:
 
-- `powd-miner`
 - `powd`
 - `powctl`
+
+`powd-miner` remains a low-level debug binary. It is not part of the normal OpenClaw install path.
 
 The normal install path is:
 
@@ -96,7 +112,7 @@ The normal install path is:
 2. configure the wallet once:
    - `powctl wallet set --wallet-address <addr> [--network main|halley]`
 3. if OpenClaw is used, print the MCP snippet:
-   - `powctl integrate mcp-config`
+   - `powctl mcp config`
 4. register that MCP command in OpenClaw
 5. operate through:
    - OpenClaw tools
@@ -114,6 +130,21 @@ The user does not need to manage:
 - `pool`
 - `pass`
 - `consensus_strategy`
+
+## Repo-local clean verification
+
+For development and verification inside this repository, there is also a pinned OpenClaw shell:
+
+1. `nix develop .#openclaw`
+2. `scripts/openclaw-smoke.sh`
+
+That shell:
+
+- fetches a pinned OpenClaw GitHub source tarball
+- builds OpenClaw locally with pinned `node` and `pnpm`
+- isolates `OPENCLAW_HOME` under `.tmp/openclaw`
+
+It is only a repo-local verification path. It is not the public user install story for `powd`.
 
 ## Wallet changes
 

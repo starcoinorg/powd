@@ -238,17 +238,24 @@ impl WalletAgent {
         }
     }
 
-    pub fn mcp_config(&self) -> Result<Value, WalletAgentError> {
-        let command =
-            resolve_binary_from_current_exe("powctl").unwrap_or_else(|_| PathBuf::from("powctl"));
-        Ok(json!({
-            "mcpServers": {
-                "powd": {
-                    "command": command,
-                    "args": ["integrate", "mcp"],
+    pub fn mcp_config(&self, server_only: bool) -> Result<Value, WalletAgentError> {
+        let command = resolve_binary_from_current_exe("powctl")?
+            .display()
+            .to_string();
+        let server = json!({
+            "command": command,
+            "args": ["mcp", "serve"],
+            "env": {},
+        });
+        if server_only {
+            Ok(server)
+        } else {
+            Ok(json!({
+                "mcpServers": {
+                    "powd": server,
                 }
-            }
-        }))
+            }))
+        }
     }
 
     fn synthetic_snapshot(&self, profile: &MintProfile) -> Result<MinerSnapshot, WalletAgentError> {
@@ -467,15 +474,34 @@ mod tests {
     }
 
     #[test]
-    fn mcp_config_points_to_agentctl_mcp_command() {
+    fn mcp_config_points_to_powctl_mcp_command() {
         let socket_path = temp_path("mcp-config-socket", "sock");
         let state_path = temp_path("mcp-config-state", "json");
         let agent = WalletAgent::with_paths(socket_path, state_path, Duration::from_secs(1));
 
-        let config = agent.mcp_config().expect("mcp_config should succeed");
+        let config = agent.mcp_config(false).expect("mcp_config should succeed");
         assert_eq!(
             config["mcpServers"]["powd"]["args"],
-            serde_json::json!(["integrate", "mcp"])
+            serde_json::json!(["mcp", "serve"])
         );
+        assert_eq!(config["mcpServers"]["powd"]["env"], serde_json::json!({}));
+        let command = config["mcpServers"]["powd"]["command"]
+            .as_str()
+            .expect("command should be a string");
+        assert!(std::path::Path::new(command).is_absolute());
+    }
+
+    #[test]
+    fn server_only_mcp_config_returns_the_single_server_object() {
+        let socket_path = temp_path("mcp-config-server-only-socket", "sock");
+        let state_path = temp_path("mcp-config-server-only-state", "json");
+        let agent = WalletAgent::with_paths(socket_path, state_path, Duration::from_secs(1));
+
+        let config = agent
+            .mcp_config(true)
+            .expect("server_only mcp_config should succeed");
+        assert_eq!(config["args"], serde_json::json!(["mcp", "serve"]));
+        assert_eq!(config["env"], serde_json::json!({}));
+        assert!(config.get("mcpServers").is_none());
     }
 }

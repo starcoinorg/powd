@@ -49,13 +49,28 @@
 
 ## 适配路径
 
-OpenClaw 的正式入口固定为：
+`powd` 面向宿主的正式入口固定为：
 
-- `powctl integrate mcp`
+- `powctl mcp serve`
+- `powctl mcp config`
 
-这个命令启动 stdio MCP server。
+`powctl mcp serve` 启动 stdio MCP server。
+
+`powctl mcp config` 输出标准本地 MCP 配置片段，固定包含：
+
+- 绝对路径的 `powctl`
+- `args = ["mcp", "serve"]`
+- `env = {}`
 
 OpenClaw 只需要注册这个命令，不需要理解 daemon 私有 socket 协议。
+
+如果使用 OpenClaw 自己管理保存的 MCP 配置，支持的注册流是：
+
+1. `powctl mcp config --server-only`
+2. `openclaw mcp set powd '<json>'`
+3. `openclaw mcp show powd --json`
+
+OpenClaw 的 `mcp set/show/list/unset` 只负责保存配置，不会证明目标 MCP server 当前一定可达。
 
 MCP bridge 只暴露公开业务工具：
 
@@ -84,11 +99,12 @@ MCP bridge 只暴露公开业务工具：
 
 ## 面向用户的安装路径
 
-面向用户的包包含：
+面向 OpenClaw 的发布物包含：
 
-- `powd-miner`
 - `powd`
 - `powctl`
+
+`powd-miner` 仍然保留给底层调试，不属于正常 OpenClaw 安装路径。
 
 正常安装路径是：
 
@@ -96,7 +112,7 @@ MCP bridge 只暴露公开业务工具：
 2. 配置一次钱包：
    - `powctl wallet set --wallet-address <addr> [--network main|halley]`
 3. 如果要接 OpenClaw，则输出 MCP 片段：
-   - `powctl integrate mcp-config`
+   - `powctl mcp config`
 4. 在 OpenClaw 里注册这个 MCP command
 5. 之后通过以下入口使用：
    - OpenClaw tools
@@ -114,6 +130,21 @@ MCP bridge 只暴露公开业务工具：
 - `pool`
 - `pass`
 - `consensus_strategy`
+
+## 仓库内的 clean 验证
+
+仓库里另外提供一条固定版本的 OpenClaw 验证路径：
+
+1. `nix develop .#openclaw`
+2. `scripts/openclaw-smoke.sh`
+
+这条路径会：
+
+- 拉取固定 tag 的 OpenClaw GitHub source tarball
+- 用固定的 `node` 和 `pnpm` 在本地构建 OpenClaw
+- 把 `OPENCLAW_HOME` 隔离在 `.tmp/openclaw`
+
+它只用于仓库内开发和验证，不是 `powd` 对外的用户安装路径。
 
 ## 钱包更新
 
