@@ -2,38 +2,31 @@ use super::render::format_event;
 use super::wallet::WalletAgent;
 use super::wallet_support::WalletAgentError;
 use crate::{BudgetMode, EventsSinceResponse, MinerSnapshot, WalletAddress};
-use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use crossterm::style::Print;
+use crossterm::execute;
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use crossterm::{execute, queue};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use std::collections::VecDeque;
-use std::io::{self, Stdout, Write};
+use std::io;
 use std::time::{Duration, Instant};
 
 const DASHBOARD_EVENT_LIMIT: usize = 12;
 const DASHBOARD_REFRESH: Duration = Duration::from_millis(500);
 
 pub async fn run_dashboard(agent: WalletAgent) -> io::Result<()> {
-    let mut stdout = io::stdout();
     enable_raw_mode()?;
-    execute!(stdout, EnterAlternateScreen, Hide)?;
-    let mut terminal = TerminalGuard;
-    let result = run_dashboard_loop(agent, &mut stdout).await;
-    terminal.restore(&mut stdout)?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = ratatui::backend::CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    let result = run_dashboard_loop(agent, &mut terminal).await;
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
     result
-}
-
-struct TerminalGuard;
-
-impl TerminalGuard {
-    fn restore(&mut self, stdout: &mut Stdout) -> io::Result<()> {
-        disable_raw_mode()?;
-        execute!(stdout, Show, LeaveAlternateScreen)?;
-        stdout.flush()
-    }
 }
 
 #[derive(Default)]
@@ -45,13 +38,16 @@ struct DashboardState {
     wallet_input: Option<String>,
 }
 
-async fn run_dashboard_loop(agent: WalletAgent, stdout: &mut Stdout) -> io::Result<()> {
+async fn run_dashboard_loop(
+    agent: WalletAgent,
+    terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+) -> io::Result<()> {
     let mut state = DashboardState::default();
     let mut last_refresh = Instant::now() - DASHBOARD_REFRESH;
     loop {
         if last_refresh.elapsed() >= DASHBOARD_REFRESH {
             refresh_dashboard(&agent, &mut state).await;
-            render_dashboard(stdout, &state)?;
+            render_dashboard(terminal, &state)?;
             last_refresh = Instant::now();
         }
         if event::poll(Duration::from_millis(100))? {
@@ -60,7 +56,10 @@ async fn run_dashboard_loop(agent: WalletAgent, stdout: &mut Stdout) -> io::Resu
                     if handle_key(&agent, &mut state, key.code).await? {
                         return Ok(());
                     }
-                    render_dashboard(stdout, &state)?;
+                    render_dashboard(terminal, &state)?;
+                }
+                Event::Resize(_, _) => {
+                    render_dashboard(terminal, &state)?;
                 }
                 _ => {}
             }
@@ -177,117 +176,212 @@ async fn refresh_dashboard(agent: &WalletAgent, state: &mut DashboardState) {
     }
 }
 
-fn render_dashboard(stdout: &mut Stdout, state: &DashboardState) -> io::Result<()> {
-    queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
-    queue!(
-        stdout,
-        Print("stc-mint-agent dashboard\n"),
-        Print("q quit | s start | x stop | p pause | r resume | a auto | 1 conservative | 2 idle | 3 balanced | 4 aggressive | w update wallet\n\n"),
-    )?;
+fn render_dashboard(
+    terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+    state: &DashboardState,
+) -> io::Result<()> {
+    terminal
+        .draw(|frame| {
+            let area = frame.size();
+            let root = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Min(12),
+                    Constraint::Length(10),
+                    Constraint::Length(3),
+                ])
+                .split(area);
 
-    match &state.snapshot {
-        Some(snapshot) => {
-            queue!(
-                stdout,
-                Print(format!("state:                  {:?}\n", snapshot.state)),
-                Print(format!("connected:              {}\n", snapshot.connected)),
-                Print(format!("pool:                   {}\n", snapshot.pool)),
-                Print(format!(
-                    "worker_name:            {}\n",
-                    snapshot.worker_name
-                )),
-                Print(format!(
-                    "requested_mode:         {:?}\n",
-                    snapshot.requested_mode
-                )),
-                Print(format!(
-                    "auto_state:             {:?}\n",
-                    snapshot.auto_state
-                )),
-                Print(format!(
-                    "auto_hold_reason:       {}\n",
-                    snapshot
-                        .auto_hold_reason
-                        .map(|value| format!("{value:?}").to_lowercase())
-                        .unwrap_or_else(|| "-".to_string())
-                )),
-                Print(format!(
-                    "effective_budget:       threads={} cpu_percent={} priority={:?}\n",
+            frame.render_widget(render_header(), root[0]);
+
+            let middle = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
+                .split(root[1]);
+            frame.render_widget(render_overview(state), middle[0]);
+            frame.render_widget(render_metrics(state), middle[1]);
+            frame.render_widget(render_events(state), root[2]);
+            frame.render_widget(render_footer(state), root[3]);
+
+            if state.wallet_input.is_some() {
+                let popup = centered_rect(70, 5, area);
+                frame.render_widget(Clear, popup);
+                frame.render_widget(render_wallet_popup(state), popup);
+            }
+        })
+        .map(|_| ())
+}
+
+fn render_header() -> Paragraph<'static> {
+    Paragraph::new(vec![
+        Line::from("stc-mint-agent dashboard"),
+        Line::from("q quit | s start | x stop | p pause | r resume | w wallet"),
+        Line::from("a auto | 1 conservative | 2 idle | 3 balanced | 4 aggressive"),
+    ])
+    .block(Block::default().borders(Borders::ALL).title("Keys"))
+    .wrap(Wrap { trim: true })
+}
+
+fn render_overview(state: &DashboardState) -> Paragraph<'static> {
+    let lines = match &state.snapshot {
+        Some(snapshot) => vec![
+            line_kv("state", serde_name(&snapshot.state)),
+            line_kv("connected", yes_no(snapshot.connected)),
+            line_kv("pool", snapshot.pool.clone()),
+            line_kv("worker", snapshot.worker_name.clone()),
+            line_kv("requested_mode", serde_name(&snapshot.requested_mode)),
+            line_kv("auto_state", serde_name(&snapshot.auto_state)),
+            line_kv(
+                "auto_hold_reason",
+                snapshot
+                    .auto_hold_reason
+                    .as_ref()
+                    .map(serde_name)
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+            line_kv(
+                "budget",
+                format!(
+                    "threads={} cpu={} priority={}",
                     snapshot.effective_budget.threads,
                     snapshot.effective_budget.cpu_percent,
-                    snapshot.effective_budget.priority,
-                )),
-                Print(format!(
-                    "hashrate:               {:.2} H/s\n",
-                    snapshot.hashrate
-                )),
-                Print(format!(
-                    "hashrate_5m:            {:.2} H/s\n",
-                    snapshot.hashrate_5m
-                )),
-                Print(format!(
-                    "accepted:               {} (5m {})\n",
-                    snapshot.accepted, snapshot.accepted_5m
-                )),
-                Print(format!(
-                    "rejected:               {} (5m {})\n",
-                    snapshot.rejected, snapshot.rejected_5m
-                )),
-                Print(format!(
-                    "submitted:              {} (5m {})\n",
-                    snapshot.submitted, snapshot.submitted_5m
-                )),
-                Print(format!(
-                    "reject_rate_5m:         {:.3}\n",
-                    snapshot.reject_rate_5m
-                )),
-                Print(format!("reconnects:             {}\n", snapshot.reconnects)),
-                Print(format!(
-                    "system_cpu_percent:     {:.1}\n",
-                    snapshot.system_cpu_percent
-                )),
-                Print(format!(
-                    "system_memory_percent:  {:.1}\n",
-                    snapshot.system_memory_percent
-                )),
-                Print(format!(
-                    "system_cpu_percent_1m:  {:.1}\n",
-                    snapshot.system_cpu_percent_1m
-                )),
-                Print(format!(
-                    "system_memory_percent_1m:{:.1}\n",
-                    snapshot.system_memory_percent_1m
-                )),
-            )?;
-            if let Some(last_error) = &snapshot.last_error {
-                queue!(
-                    stdout,
-                    Print(format!("last_error:             {}\n", last_error))
-                )?;
-            }
-        }
-        None => {
-            queue!(
-                stdout,
-                Print("wallet not configured yet. Press w to set a payout wallet.\n")
-            )?;
-        }
-    }
+                    serde_name(&snapshot.effective_budget.priority)
+                ),
+            ),
+            line_kv(
+                "last_error",
+                snapshot
+                    .last_error
+                    .clone()
+                    .unwrap_or_else(|| "-".to_string()),
+            ),
+        ],
+        None => vec![
+            Line::from("wallet not configured yet"),
+            Line::from("press w to set a payout wallet"),
+        ],
+    };
+    Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title("Overview"))
+        .wrap(Wrap { trim: true })
+}
 
-    queue!(stdout, Print("\nrecent events:\n"))?;
-    if state.events.is_empty() {
-        queue!(stdout, Print("  (no events)\n"))?;
+fn render_metrics(state: &DashboardState) -> Paragraph<'static> {
+    let lines = match &state.snapshot {
+        Some(snapshot) => vec![
+            line_kv("hashrate", format!("{:.2} H/s", snapshot.hashrate)),
+            line_kv("hashrate_5m", format!("{:.2} H/s", snapshot.hashrate_5m)),
+            line_kv(
+                "accepted",
+                format!("{} (5m {})", snapshot.accepted, snapshot.accepted_5m),
+            ),
+            line_kv(
+                "rejected",
+                format!("{} (5m {})", snapshot.rejected, snapshot.rejected_5m),
+            ),
+            line_kv(
+                "submitted",
+                format!("{} (5m {})", snapshot.submitted, snapshot.submitted_5m),
+            ),
+            line_kv("reject_rate_5m", format!("{:.3}", snapshot.reject_rate_5m)),
+            line_kv("reconnects", snapshot.reconnects.to_string()),
+            line_kv("uptime_secs", snapshot.uptime_secs.to_string()),
+            line_kv("system_cpu", format!("{:.1}%", snapshot.system_cpu_percent)),
+            line_kv(
+                "system_memory",
+                format!("{:.1}%", snapshot.system_memory_percent),
+            ),
+            line_kv(
+                "system_cpu_1m",
+                format!("{:.1}%", snapshot.system_cpu_percent_1m),
+            ),
+            line_kv(
+                "system_memory_1m",
+                format!("{:.1}%", snapshot.system_memory_percent_1m),
+            ),
+        ],
+        None => vec![Line::from("no miner metrics yet")],
+    };
+    Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title("Metrics"))
+        .wrap(Wrap { trim: true })
+}
+
+fn render_events(state: &DashboardState) -> List<'static> {
+    let items = if state.events.is_empty() {
+        vec![ListItem::new("(no events)")]
     } else {
-        for event in &state.events {
-            queue!(stdout, Print(format!("  {}\n", event)))?;
-        }
-    }
+        state
+            .events
+            .iter()
+            .cloned()
+            .map(ListItem::new)
+            .collect::<Vec<_>>()
+    };
+    List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Recent Events"),
+    )
+}
 
-    queue!(stdout, Print("\n"))?;
-    if let Some(buffer) = &state.wallet_input {
-        queue!(stdout, Print(format!("wallet> {}_", buffer)))?;
-    } else if let Some(message) = &state.status_message {
-        queue!(stdout, Print(format!("status: {}\n", message)))?;
+fn render_footer(state: &DashboardState) -> Paragraph<'static> {
+    let message = state
+        .status_message
+        .clone()
+        .unwrap_or_else(|| "ready".to_string());
+    Paragraph::new(message)
+        .block(Block::default().borders(Borders::ALL).title("Status"))
+        .wrap(Wrap { trim: true })
+}
+
+fn render_wallet_popup(state: &DashboardState) -> Paragraph<'static> {
+    let input = state.wallet_input.clone().unwrap_or_default();
+    Paragraph::new(vec![
+        Line::from("Update wallet"),
+        Line::from("Enter payout wallet address and press Enter. Esc cancels."),
+        Line::from(format!("wallet> {}", input)),
+    ])
+    .block(Block::default().borders(Borders::ALL).title("Wallet"))
+    .wrap(Wrap { trim: true })
+}
+
+fn centered_rect(width_percent: u16, height: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(50),
+            Constraint::Length(height),
+            Constraint::Percentage(50),
+        ])
+        .split(area);
+    let horizontal = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - width_percent) / 2),
+            Constraint::Percentage(width_percent),
+            Constraint::Percentage((100 - width_percent) / 2),
+        ])
+        .split(vertical[1]);
+    horizontal[1]
+}
+
+fn line_kv(label: &str, value: impl Into<String>) -> Line<'static> {
+    Line::from(format!("{label}: {}", value.into()))
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value {
+        "yes"
+    } else {
+        "no"
     }
-    stdout.flush()
+}
+
+fn serde_name<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string(value)
+        .expect("encode serde name")
+        .trim_matches('"')
+        .to_string()
 }
