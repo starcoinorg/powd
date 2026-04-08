@@ -400,7 +400,7 @@ impl WalletAgent {
 mod tests {
     use super::WalletAgent;
     use crate::{MintNetwork, WalletAddress};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     fn temp_path(label: &str, suffix: &str) -> std::path::PathBuf {
         let now = SystemTime::now()

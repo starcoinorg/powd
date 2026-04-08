@@ -8,19 +8,32 @@ use std::time::Duration;
 use support::fake_pool::{DisconnectOncePool, SilentKeepalivePool};
 use support::mock_rpc::{build_mint_event, MockMiningRpc};
 use support::process::{
-    pick_free_port, resolve_cpu_miner_bin, wait_for_child_exit, wait_for_submit_count,
-    StratumdProcess, TEST_MUTEX,
+    pick_free_port, resolve_powd_miner_bin, resolve_stratumd_bin, wait_for_child_exit,
+    wait_for_submit_count, StratumdProcess, TEST_MUTEX,
 };
+
+fn skip_if_stratumd_unavailable() -> bool {
+    match resolve_stratumd_bin() {
+        Ok(_) => false,
+        Err(err) => {
+            eprintln!("skipping stratumd-backed e2e test: {err}");
+            true
+        }
+    }
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cpu_miner_submits_share_to_current_stratumd() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
+    if skip_if_stratumd_unavailable() {
+        return Ok(());
+    }
 
     let mock = MockMiningRpc::start(build_mint_event(1, 1, ConsensusStrategy::Dummy))?;
     let listen = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), pick_free_port()?);
     let _stratumd = StratumdProcess::spawn(listen, &mock.ws_url()).await?;
 
-    let miner_bin = resolve_cpu_miner_bin()?;
+    let miner_bin = resolve_powd_miner_bin()?;
     let login = "0xd820b199fbaf1bc5e68eb1c511c2c3d1.worker1";
     let status = Command::new(miner_bin)
         .arg("--pool")
@@ -59,12 +72,15 @@ async fn cpu_miner_submits_share_to_current_stratumd() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cpu_miner_submits_keccak_share_to_current_stratumd() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
+    if skip_if_stratumd_unavailable() {
+        return Ok(());
+    }
 
     let mock = MockMiningRpc::start(build_mint_event(1, 1, ConsensusStrategy::Keccak))?;
     let listen = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), pick_free_port()?);
     let _stratumd = StratumdProcess::spawn(listen, &mock.ws_url()).await?;
 
-    let miner_bin = resolve_cpu_miner_bin()?;
+    let miner_bin = resolve_powd_miner_bin()?;
     let login = "0xd820b199fbaf1bc5e68eb1c511c2c3d1.worker-keccak";
     let status = Command::new(miner_bin)
         .arg("--pool")
@@ -100,10 +116,13 @@ async fn cpu_miner_submits_keccak_share_to_current_stratumd() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cpu_miner_retries_until_stratumd_is_available() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
+    if skip_if_stratumd_unavailable() {
+        return Ok(());
+    }
 
     let mock = MockMiningRpc::start(build_mint_event(1, 1, ConsensusStrategy::Dummy))?;
     let listen = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), pick_free_port()?);
-    let miner_bin = resolve_cpu_miner_bin()?;
+    let miner_bin = resolve_powd_miner_bin()?;
     let login = "0xd820b199fbaf1bc5e68eb1c511c2c3d1.worker-retry";
 
     let mut miner = Command::new(miner_bin)
@@ -141,11 +160,14 @@ async fn cpu_miner_retries_until_stratumd_is_available() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cpu_miner_recovers_after_connected_stratumd_restart() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
+    if skip_if_stratumd_unavailable() {
+        return Ok(());
+    }
 
     let mock = MockMiningRpc::start(build_mint_event(1, 1, ConsensusStrategy::Dummy))?;
     let listen = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), pick_free_port()?);
     let mut stratumd = Some(StratumdProcess::spawn(listen, &mock.ws_url()).await?);
-    let miner_bin = resolve_cpu_miner_bin()?;
+    let miner_bin = resolve_powd_miner_bin()?;
     let login = "0xd820b199fbaf1bc5e68eb1c511c2c3d1.worker-restart";
 
     let mut miner = Command::new(miner_bin)
@@ -192,7 +214,7 @@ async fn cpu_miner_reconnects_after_keepalive_timeout() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = SilentKeepalivePool::start().await?;
-    let miner_bin = resolve_cpu_miner_bin()?;
+    let miner_bin = resolve_powd_miner_bin()?;
     let login = "0xd820b199fbaf1bc5e68eb1c511c2c3d1.worker-silent";
 
     let status = Command::new(miner_bin)
@@ -228,7 +250,7 @@ async fn cpu_miner_recovers_after_connected_pool_disconnect() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
     let pool = DisconnectOncePool::start().await?;
-    let miner_bin = resolve_cpu_miner_bin()?;
+    let miner_bin = resolve_powd_miner_bin()?;
     let login = "0xd820b199fbaf1bc5e68eb1c511c2c3d1.worker-disconnect";
 
     let status = Command::new(miner_bin)

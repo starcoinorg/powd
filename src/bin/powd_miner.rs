@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 struct Cli {
     #[arg(
         long,
-        help = "Stratum pool endpoint, for example main-stratum.starcoin.org:9888"
+        help = "Stratum pool endpoint, for example main-stratum.starcoin.org:9889"
     )]
     pool: String,
     #[arg(long, help = "Stratum login in wallet.worker form")]

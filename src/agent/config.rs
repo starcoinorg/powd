@@ -9,8 +9,8 @@ use starcoin_types::genesis_config::ConsensusStrategy;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const DEFAULT_MAIN_POOL: &str = "main-stratum.starcoin.org:9888";
-const DEFAULT_HALLEY_POOL: &str = "halley-stratum.starcoin.org:9888";
+const DEFAULT_MAIN_POOL: &str = "main-stratum.starcoin.org:9889";
+const DEFAULT_HALLEY_POOL: &str = "halley-stratum.starcoin.org:9889";
 const DEFAULT_PASS: &str = "x";
 const DEFAULT_MAIN_REWARD_API: &str = "https://main-pool.starcoin.org";
 const DEFAULT_HALLEY_REWARD_API: &str = "https://halley-pool.starcoin.org";

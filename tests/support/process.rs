@@ -12,12 +12,14 @@ pub static TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 pub struct StratumdProcess {
     child: Child,
     ipc_path: PathBuf,
+    spool_path: PathBuf,
 }
 
 impl StratumdProcess {
     pub async fn spawn(listen: SocketAddr, node_rpc: &str) -> Result<Self> {
         let bin = resolve_stratumd_bin()?;
         let ipc_path = temp_test_path("ipc", "sock");
+        let spool_path = temp_test_path("pplns", "spool");
         let database_url = std::env::var("TEST_DATABASE_URL")
             .ok()
             .filter(|url| !url.trim().is_empty())
@@ -36,14 +38,18 @@ impl StratumdProcess {
             .arg(ipc_path.as_os_str())
             .arg("--job-poll-ms")
             .arg("50")
-            .arg("--disable-pplns")
-            .arg("true")
+            .arg("--pplns-spool-path")
+            .arg(spool_path.as_os_str())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
 
         let mut child = cmd.spawn().context("spawn stratumd failed")?;
         wait_for_server_ready(&mut child, listen, Duration::from_secs(6)).await?;
-        Ok(Self { child, ipc_path })
+        Ok(Self {
+            child,
+            ipc_path,
+            spool_path,
+        })
     }
 }
 
@@ -52,6 +58,8 @@ impl Drop for StratumdProcess {
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = std::fs::remove_file(self.ipc_path.as_path());
+        let _ = std::fs::remove_file(self.spool_path.as_path());
+        let _ = std::fs::remove_file(self.spool_path.with_extension("share-seq"));
     }
 }
 
@@ -67,15 +75,25 @@ pub fn resolve_powctl_bin() -> Result<PathBuf> {
     resolve_binary("powctl")
 }
 
-fn resolve_stratumd_bin() -> Result<PathBuf> {
-    resolve_binary("starcoin_stratumd")
+pub fn resolve_stratumd_bin() -> Result<PathBuf> {
+    if let Ok(bin) = std::env::var("STRATUMD_BIN") {
+        return Ok(PathBuf::from(bin));
+    }
+    resolve_binary_from_candidates(&["starcoin_stratumd", "starcoin_mining_pool"])
 }
 
 fn resolve_binary(name: &str) -> Result<PathBuf> {
-    let env_var = format!("CARGO_BIN_EXE_{}", name);
-    if let Ok(bin) = std::env::var(&env_var) {
-        return Ok(PathBuf::from(bin));
+    resolve_binary_from_candidates(&[name])
+}
+
+fn resolve_binary_from_candidates(names: &[&str]) -> Result<PathBuf> {
+    for name in names {
+        let env_var = format!("CARGO_BIN_EXE_{}", name);
+        if let Ok(bin) = std::env::var(&env_var) {
+            return Ok(PathBuf::from(bin));
+        }
     }
+
     let current = std::env::current_exe().context("resolve current test executable failed")?;
     let debug_dir = current
         .parent()
@@ -83,17 +101,19 @@ fn resolve_binary(name: &str) -> Result<PathBuf> {
         .ok_or_else(|| {
             anyhow::anyhow!("cannot locate target/debug directory from {:?}", current)
         })?;
-    let candidate = debug_dir.join(if cfg!(windows) {
-        format!("{}.exe", name)
-    } else {
-        name.to_string()
-    });
-    if candidate.exists() {
-        return Ok(candidate);
+    for name in names {
+        let candidate = debug_dir.join(if cfg!(windows) {
+            format!("{}.exe", name)
+        } else {
+            name.to_string()
+        });
+        if candidate.exists() {
+            return Ok(candidate);
+        }
     }
     Err(anyhow::anyhow!(
-        "cannot find {} binary via env var or target/debug",
-        name,
+        "cannot find any of {:?} via STRATUMD_BIN, env var, or target/debug",
+        names,
     ))
 }
 
