@@ -31,14 +31,7 @@ powctl integrate mcp
 
 ## Docs
 
-- `docs/powd-local-api.en.md`
-- `docs/powd-openclaw-integration.en.md`
-- `docs/powd-identity.en.md`
-- `docs/powd-positioning.en.md`
-
-Chinese:
-
-- `docs/powd-local-api.zh.md`
-- `docs/powd-openclaw-integration.zh.md`
-- `docs/powd-identity.zh.md`
-- `docs/powd-positioning.zh.md`
+- [Docs index](docs/README.md)
+- [Local API](docs/powd-local-api.en.md)
+- [OpenClaw integration](docs/powd-openclaw-integration.en.md)
+- [Identity and minimal protocol](docs/powd-identity.en.md)

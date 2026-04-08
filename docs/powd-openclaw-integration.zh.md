@@ -9,7 +9,7 @@
 - 包怎么安装和交付给用户
 - 为什么这样组织
 
-它是集成最佳实践的权威文档。具体命令和 API 参考见 `docs/powd-local-api.zh.md`。
+它是集成最佳实践的权威文档。具体命令和 API 参考见 [powd-local-api.zh.md](powd-local-api.zh.md)。
 
 ## 最终组织
 

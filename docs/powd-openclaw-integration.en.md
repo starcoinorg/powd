@@ -9,7 +9,7 @@ This document fixes the supported third-party integration boundary for OpenClaw:
 - how the package is installed and handed to users
 - why the system is organized that way
 
-It is the canonical integration document. The concrete command and API reference stays in `docs/powd-local-api.en.md`.
+It is the canonical integration document. The concrete command and API reference stays in [powd-local-api.en.md](powd-local-api.en.md).
 
 ## Final organization
 

@@ -9,7 +9,7 @@
 - daemon 私有的 Unix socket JSON-RPC
 - 本地调用方可依赖的稳定状态字段
 
-OpenClaw 集成的整体理由见 `docs/powd-openclaw-integration.zh.md`。
+OpenClaw 集成的整体理由见 [powd-openclaw-integration.zh.md](powd-openclaw-integration.zh.md)。
 
 ## 用户模型
 

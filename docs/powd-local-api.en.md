@@ -9,7 +9,7 @@ This document describes the currently supported local surfaces around `powd`:
 - the daemon-private Unix socket JSON-RPC
 - the stable status fields that local callers can rely on
 
-For the broader OpenClaw integration rationale, see `docs/powd-openclaw-integration.en.md`.
+For the broader OpenClaw integration rationale, see [powd-openclaw-integration.en.md](powd-openclaw-integration.en.md).
 
 ## User model
 
