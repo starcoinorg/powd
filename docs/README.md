@@ -6,5 +6,3 @@
 - `powd-openclaw-integration.zh.md`
 - `powd-identity.en.md`
 - `powd-identity.zh.md`
-- `powd-positioning.en.md`
-- `powd-positioning.zh.md`
