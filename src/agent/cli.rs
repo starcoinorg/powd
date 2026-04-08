@@ -2,7 +2,10 @@ use super::command::{AgentCommand, AgentReply, MinerAction, WalletAction};
 use super::dashboard::run_dashboard;
 use super::default_socket_path;
 use super::mcp::run_mcp;
-use super::render::{print_doctor_report, print_json_or_text, print_status, print_wallet_summary};
+use super::render::{
+    print_doctor_report, print_json_or_text, print_status, print_wallet_reward,
+    print_wallet_summary,
+};
 use super::wallet::WalletAgent;
 use super::wallet_support::WalletAgentError;
 use crate::{BudgetMode, MintNetwork, WalletAddress};
@@ -16,7 +19,7 @@ use std::time::Duration;
 #[command(
     name = "stc-mint-agentctl",
     about = "Operate a local stc-mint-agent daemon",
-    after_help = "Examples:\n  stc-mint-agentctl wallet set --wallet-address 0xabc...\n  stc-mint-agentctl wallet show\n  stc-mint-agentctl miner start\n  stc-mint-agentctl miner set-mode auto\n  stc-mint-agentctl miner watch\n  stc-mint-agentctl integrate doctor\n  stc-mint-agentctl integrate mcp-config"
+    after_help = "Examples:\n  stc-mint-agentctl wallet set --wallet-address 0xabc...\n  stc-mint-agentctl wallet show\n  stc-mint-agentctl wallet reward\n  stc-mint-agentctl miner start\n  stc-mint-agentctl miner set-mode auto\n  stc-mint-agentctl miner watch\n  stc-mint-agentctl integrate doctor\n  stc-mint-agentctl integrate mcp-config"
 )]
 pub struct AgentCliArgs {
     #[arg(
@@ -82,6 +85,11 @@ enum WalletCliCommand {
     },
     #[command(about = "Show the persisted wallet address, worker id, network, and derived login")]
     Show,
+    #[command(
+        about = "Query account reward totals from the configured pool-service HTTP API",
+        after_help = "This is an external account query based on the persisted wallet address and network.\nIt does not depend on the local miner daemon and does not change miner runtime state."
+    )]
+    Reward,
 }
 
 #[derive(Subcommand, Debug)]
@@ -221,6 +229,7 @@ async fn run_wallet_command(
             network: network.map(map_network),
         }),
         WalletCliCommand::Show => AgentCommand::Wallet(WalletAction::Show),
+        WalletCliCommand::Reward => AgentCommand::Wallet(WalletAction::Reward),
     };
     let reply = agent
         .execute(command)
@@ -310,6 +319,9 @@ fn print_reply(reply: AgentReply, json: bool) {
         AgentReply::WalletSummary(summary) => {
             print_json_or_text(&summary, json, print_wallet_summary);
         }
+        AgentReply::WalletReward(snapshot) => {
+            print_json_or_text(&snapshot, json, print_wallet_reward);
+        }
         AgentReply::MinerSnapshot(snapshot) => {
             print_status(snapshot, json);
         }
@@ -334,6 +346,7 @@ fn map_wallet_error(err: WalletAgentError, json: bool) -> CliError {
         },
         WalletAgentError::Io { .. }
         | WalletAgentError::StateParse(_)
+        | WalletAgentError::Reward(_)
         | WalletAgentError::Spawn(_)
         | WalletAgentError::DaemonBinaryNotFound(_)
         | WalletAgentError::DaemonExited

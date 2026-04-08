@@ -1,3 +1,4 @@
+use super::reward::WalletRewardSnapshot;
 use super::wallet::WalletAgent;
 use super::wallet_support::{WalletAgentError, WalletConfigSummary};
 use crate::{BudgetMode, MinerSnapshot, MintNetwork, WalletAddress};
@@ -16,6 +17,7 @@ pub(crate) enum WalletAction {
         network: Option<MintNetwork>,
     },
     Show,
+    Reward,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,6 +33,7 @@ pub(crate) enum MinerAction {
 #[derive(Clone, Debug)]
 pub(crate) enum AgentReply {
     WalletSummary(WalletConfigSummary),
+    WalletReward(WalletRewardSnapshot),
     MinerSnapshot(MinerSnapshot),
 }
 
@@ -40,6 +43,7 @@ impl AgentReply {
             Self::WalletSummary(value) => {
                 serde_json::to_value(value).expect("encode wallet summary")
             }
+            Self::WalletReward(value) => serde_json::to_value(value).expect("encode wallet reward"),
             Self::MinerSnapshot(value) => {
                 serde_json::to_value(value).expect("encode miner snapshot")
             }
@@ -65,6 +69,7 @@ impl WalletAgent {
                 .await
                 .map(AgentReply::WalletSummary),
             WalletAction::Show => self.show_wallet().await.map(AgentReply::WalletSummary),
+            WalletAction::Reward => self.reward().await.map(AgentReply::WalletReward),
         }
     }
 

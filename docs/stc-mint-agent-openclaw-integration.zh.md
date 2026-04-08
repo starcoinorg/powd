@@ -61,12 +61,18 @@ MCP bridge 只暴露公开业务工具：
 
 - `wallet_set`
 - `wallet_show`
+- `wallet_reward`
 - `miner_status`
 - `miner_start`
 - `miner_stop`
 - `miner_pause`
 - `miner_resume`
 - `miner_set_mode`
+
+它刻意把账户收益和 miner 运行状态分开：
+
+- `wallet_reward` 是对 pool-service 的外部账户查询
+- `miner_status` 仍然只表示本地 daemon 状态
 
 它故意隐藏：
 

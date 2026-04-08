@@ -1,4 +1,5 @@
 use super::config::{build_miner_config, default_socket_path, default_state_path, MintProfile};
+use super::reward::{fetch_wallet_reward, WalletRewardSnapshot};
 use super::wallet_support::{
     profile_with_defaults, resolve_binary_from_current_exe, wait_for_daemon_ready,
     write_file_atomically, DoctorReport, WalletAgentError, WalletConfigSummary,
@@ -177,6 +178,15 @@ impl WalletAgent {
             .load_profile_optional()?
             .ok_or(WalletAgentError::NotConfigured)?;
         self.summary(profile).await
+    }
+
+    pub async fn reward(&self) -> Result<WalletRewardSnapshot, WalletAgentError> {
+        let profile = self
+            .load_profile_optional()?
+            .ok_or(WalletAgentError::NotConfigured)?;
+        fetch_wallet_reward(&profile, self.timeout)
+            .await
+            .map_err(WalletAgentError::Reward)
     }
 
     pub async fn doctor(&self) -> Result<DoctorReport, WalletAgentError> {

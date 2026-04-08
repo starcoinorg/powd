@@ -42,6 +42,7 @@ OpenClaw 集成的整体理由见 `docs/stc-mint-agent-openclaw-integration.zh.m
 
 - `stc-mint-agentctl wallet set --wallet-address <addr> [--network main|halley]`
 - `stc-mint-agentctl wallet show`
+- `stc-mint-agentctl wallet reward`
 
 语义：
 
@@ -51,6 +52,8 @@ OpenClaw 集成的整体理由见 `docs/stc-mint-agent-openclaw-integration.zh.m
 - `worker_id` 保持不变
 - 首次执行时 `--network` 默认是 `main`；后续未传时保持原 network
 - 如果 daemon 正在运行，`wallet set` 会立即对 daemon 重配
+- `wallet reward` 是独立的外部账户查询，数据来自 pool-service
+- `wallet reward` 使用持久化的 `wallet_address + network`，不依赖 daemon
 
 ### Miner 命令
 
@@ -92,12 +95,20 @@ mode 语义：
 
 - `wallet_set`
 - `wallet_show`
+- `wallet_reward`
 - `miner_status`
 - `miner_start`
 - `miner_stop`
 - `miner_pause`
 - `miner_resume`
 - `miner_set_mode`
+
+它不暴露：
+
+reward 被刻意和 `miner_status` 分开：
+
+- `miner_status` 保持纯本地 daemon 状态
+- `wallet_reward` 通过外部 HTTP 查询 pool-service
 
 它不暴露：
 

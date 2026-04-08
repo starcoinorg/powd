@@ -215,23 +215,50 @@ fn render_dashboard(
 
 fn render_header() -> Paragraph<'static> {
     Paragraph::new(vec![
-        Line::from("stc-mint-agent dashboard"),
-        Line::from("q quit | s start | x stop | p pause | r resume | w wallet"),
-        Line::from("a auto | 1 conservative | 2 idle | 3 balanced | 4 aggressive"),
+        Line::from(vec![Span::styled(
+            "stc-mint-agent dashboard",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            "q quit | s start | x stop | p pause | r resume | w wallet",
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(vec![Span::styled(
+            "a auto | 1 conservative | 2 idle | 3 balanced | 4 aggressive",
+            Style::default().fg(Color::White),
+        )]),
     ])
-    .block(Block::default().borders(Borders::ALL).title("Keys"))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(Span::styled("Keys", Style::default().fg(Color::LightCyan))),
+    )
     .wrap(Wrap { trim: true })
 }
 
 fn render_overview(state: &DashboardState) -> Paragraph<'static> {
     let lines = match &state.snapshot {
         Some(snapshot) => vec![
-            line_kv("state", serde_name(&snapshot.state)),
-            line_kv("connected", yes_no(snapshot.connected)),
+            line_kv_styled("state", serde_name(&snapshot.state), state_style(snapshot)),
+            line_kv_styled(
+                "connected",
+                yes_no(snapshot.connected),
+                bool_style(snapshot.connected),
+            ),
             line_kv("pool", snapshot.pool.clone()),
             line_kv("worker", snapshot.worker_name.clone()),
-            line_kv("requested_mode", serde_name(&snapshot.requested_mode)),
-            line_kv("auto_state", serde_name(&snapshot.auto_state)),
+            line_kv_styled(
+                "requested_mode",
+                serde_name(&snapshot.requested_mode),
+                mode_style(snapshot.requested_mode),
+            ),
+            line_kv_styled(
+                "auto_state",
+                serde_name(&snapshot.auto_state),
+                auto_state_style(snapshot),
+            ),
             line_kv(
                 "auto_hold_reason",
                 snapshot
@@ -249,80 +276,132 @@ fn render_overview(state: &DashboardState) -> Paragraph<'static> {
                     serde_name(&snapshot.effective_budget.priority)
                 ),
             ),
-            line_kv(
+            line_kv_styled(
                 "last_error",
                 snapshot
                     .last_error
                     .clone()
                     .unwrap_or_else(|| "-".to_string()),
+                error_style(snapshot.last_error.is_some()),
             ),
         ],
         None => vec![
-            Line::from("wallet not configured yet"),
-            Line::from("press w to set a payout wallet"),
+            Line::from(vec![Span::styled(
+                "wallet not configured yet",
+                Style::default().fg(Color::Yellow),
+            )]),
+            Line::from(vec![Span::styled(
+                "press w to set a payout wallet",
+                Style::default().fg(Color::White),
+            )]),
         ],
     };
     Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title("Overview"))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Span::styled("Overview", Style::default().fg(Color::LightCyan))),
+        )
         .wrap(Wrap { trim: true })
 }
 
 fn render_metrics(state: &DashboardState) -> Paragraph<'static> {
     let lines = match &state.snapshot {
         Some(snapshot) => vec![
-            line_kv("hashrate", format!("{:.2} H/s", snapshot.hashrate)),
-            line_kv("hashrate_5m", format!("{:.2} H/s", snapshot.hashrate_5m)),
-            line_kv(
+            line_kv_styled(
+                "hashrate",
+                format!("{:.2} H/s", snapshot.hashrate),
+                Style::default().fg(Color::Green),
+            ),
+            line_kv_styled(
+                "hashrate_5m",
+                format!("{:.2} H/s", snapshot.hashrate_5m),
+                Style::default().fg(Color::LightGreen),
+            ),
+            line_kv_styled(
                 "accepted",
                 format!("{} (5m {})", snapshot.accepted, snapshot.accepted_5m),
+                Style::default().fg(Color::Green),
             ),
-            line_kv(
+            line_kv_styled(
                 "rejected",
                 format!("{} (5m {})", snapshot.rejected, snapshot.rejected_5m),
+                Style::default().fg(Color::Red),
             ),
             line_kv(
                 "submitted",
                 format!("{} (5m {})", snapshot.submitted, snapshot.submitted_5m),
             ),
-            line_kv("reject_rate_5m", format!("{:.3}", snapshot.reject_rate_5m)),
-            line_kv("reconnects", snapshot.reconnects.to_string()),
+            line_kv_styled(
+                "reject_rate_5m",
+                format!("{:.3}", snapshot.reject_rate_5m),
+                ratio_style(snapshot.reject_rate_5m, 0.05, 0.15),
+            ),
+            line_kv_styled(
+                "reconnects",
+                snapshot.reconnects.to_string(),
+                count_style(snapshot.reconnects),
+            ),
             line_kv("uptime_secs", snapshot.uptime_secs.to_string()),
-            line_kv("system_cpu", format!("{:.1}%", snapshot.system_cpu_percent)),
-            line_kv(
+            line_kv_styled(
+                "system_cpu",
+                format!("{:.1}%", snapshot.system_cpu_percent),
+                percent_style(snapshot.system_cpu_percent),
+            ),
+            line_kv_styled(
                 "system_memory",
                 format!("{:.1}%", snapshot.system_memory_percent),
+                percent_style(snapshot.system_memory_percent),
             ),
-            line_kv(
+            line_kv_styled(
                 "system_cpu_1m",
                 format!("{:.1}%", snapshot.system_cpu_percent_1m),
+                percent_style(snapshot.system_cpu_percent_1m),
             ),
-            line_kv(
+            line_kv_styled(
                 "system_memory_1m",
                 format!("{:.1}%", snapshot.system_memory_percent_1m),
+                percent_style(snapshot.system_memory_percent_1m),
             ),
         ],
-        None => vec![Line::from("no miner metrics yet")],
+        None => vec![Line::from(vec![Span::styled(
+            "no miner metrics yet",
+            Style::default().fg(Color::White),
+        )])],
     };
     Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title("Metrics"))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Span::styled("Metrics", Style::default().fg(Color::LightCyan))),
+        )
         .wrap(Wrap { trim: true })
 }
 
 fn render_events(state: &DashboardState) -> List<'static> {
     let items = if state.events.is_empty() {
-        vec![ListItem::new("(no events)")]
+        vec![ListItem::new(Line::from(vec![Span::styled(
+            "(no events)",
+            Style::default().fg(Color::White),
+        )]))]
     } else {
         state
             .events
             .iter()
             .cloned()
-            .map(ListItem::new)
+            .map(|event| ListItem::new(Line::from(vec![Span::styled(
+                event.clone(),
+                event_style(&event),
+            )])))
             .collect::<Vec<_>>()
     };
     List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title("Recent Events"),
+            .title(Span::styled(
+                "Recent Events",
+                Style::default().fg(Color::LightCyan),
+            )),
     )
 }
 
@@ -331,19 +410,41 @@ fn render_footer(state: &DashboardState) -> Paragraph<'static> {
         .status_message
         .clone()
         .unwrap_or_else(|| "ready".to_string());
-    Paragraph::new(message)
-        .block(Block::default().borders(Borders::ALL).title("Status"))
+    Paragraph::new(Line::from(vec![Span::styled(
+        message.clone(),
+        footer_style(&message),
+    )]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Span::styled("Status", Style::default().fg(Color::LightCyan))),
+        )
         .wrap(Wrap { trim: true })
 }
 
 fn render_wallet_popup(state: &DashboardState) -> Paragraph<'static> {
     let input = state.wallet_input.clone().unwrap_or_default();
     Paragraph::new(vec![
-        Line::from("Update wallet"),
-        Line::from("Enter payout wallet address and press Enter. Esc cancels."),
-        Line::from(format!("wallet> {}", input)),
+        Line::from(vec![Span::styled(
+            "Update wallet",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(vec![Span::styled(
+            "Enter payout wallet address and press Enter. Esc cancels.",
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(vec![
+            Span::styled("wallet> ", Style::default().fg(Color::Yellow)),
+            Span::styled(input, Style::default().fg(Color::White)),
+        ]),
     ])
-    .block(Block::default().borders(Borders::ALL).title("Wallet"))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(Span::styled("Wallet", Style::default().fg(Color::LightCyan))),
+    )
     .wrap(Wrap { trim: true })
 }
 
@@ -368,7 +469,14 @@ fn centered_rect(width_percent: u16, height: u16, area: Rect) -> Rect {
 }
 
 fn line_kv(label: &str, value: impl Into<String>) -> Line<'static> {
-    Line::from(format!("{label}: {}", value.into()))
+    line_kv_styled(label, value.into(), Style::default())
+}
+
+fn line_kv_styled(label: &str, value: impl Into<String>, value_style: Style) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(format!("{label}: "), Style::default().fg(Color::LightBlue)),
+        Span::styled(value.into(), value_style),
+    ])
 }
 
 fn yes_no(value: bool) -> &'static str {
@@ -384,4 +492,97 @@ fn serde_name<T: serde::Serialize>(value: &T) -> String {
         .expect("encode serde name")
         .trim_matches('"')
         .to_string()
+}
+
+fn state_style(snapshot: &MinerSnapshot) -> Style {
+    match serde_name(&snapshot.state).as_str() {
+        "running" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        "starting" => Style::default().fg(Color::Yellow),
+        "paused" => Style::default().fg(Color::LightYellow),
+        "reconnecting" => Style::default().fg(Color::Magenta),
+        "stopped" => Style::default().fg(Color::LightBlue),
+        _ => Style::default().fg(Color::White),
+    }
+}
+
+fn bool_style(value: bool) -> Style {
+    if value {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Red)
+    }
+}
+
+fn mode_style(mode: crate::BudgetMode) -> Style {
+    match mode {
+        BudgetMode::Auto => Style::default().fg(Color::Cyan),
+        BudgetMode::Conservative => Style::default().fg(Color::LightBlue),
+        BudgetMode::Idle => Style::default().fg(Color::Blue),
+        BudgetMode::Balanced => Style::default().fg(Color::Yellow),
+        BudgetMode::Aggressive => Style::default().fg(Color::Red),
+    }
+}
+
+fn auto_state_style(snapshot: &MinerSnapshot) -> Style {
+    match serde_name(&snapshot.auto_state).as_str() {
+        "active" => Style::default().fg(Color::Green),
+        "held" => Style::default().fg(Color::Yellow),
+        _ => Style::default().fg(Color::White),
+    }
+}
+
+fn error_style(has_error: bool) -> Style {
+    if has_error {
+        Style::default().fg(Color::Red)
+    } else {
+        Style::default().fg(Color::White)
+    }
+}
+
+fn percent_style(value: f64) -> Style {
+    if value >= 85.0 {
+        Style::default().fg(Color::Red)
+    } else if value >= 60.0 {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::Green)
+    }
+}
+
+fn ratio_style(value: f64, warn: f64, bad: f64) -> Style {
+    if value >= bad {
+        Style::default().fg(Color::Red)
+    } else if value >= warn {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::Green)
+    }
+}
+
+fn count_style(value: u64) -> Style {
+    if value > 0 {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::Green)
+    }
+}
+
+fn event_style(event: &str) -> Style {
+    let _ = event;
+    Style::default().fg(Color::White)
+}
+
+fn footer_style(message: &str) -> Style {
+    let lowered = message.to_ascii_lowercase();
+    if lowered.contains("failed") || lowered.contains("error") {
+        Style::default().fg(Color::Red)
+    } else if lowered.contains("updated")
+        || lowered.contains("started")
+        || lowered.contains("resumed")
+        || lowered == "ready"
+    {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::Yellow)
+    }
 }

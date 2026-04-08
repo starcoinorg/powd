@@ -2,12 +2,15 @@
 mod agent_process;
 #[path = "support/fake_pool.rs"]
 mod fake_pool;
+#[path = "support/fake_reward_api.rs"]
+mod fake_reward_api;
 #[path = "support/process_cli.rs"]
 mod process;
 
 use agent_process::AgentProcess;
 use anyhow::{Context, Result};
 use fake_pool::SilentKeepalivePool;
+use fake_reward_api::FakeRewardApi;
 use process::{resolve_stc_mint_agent_bin, resolve_stc_mint_agentctl_bin, TEST_MUTEX};
 use serde_json::Value;
 use std::process::Command;
@@ -83,6 +86,174 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_cli_wallet_reward_reads_external_account_totals() -> Result<()> {
+    let _guard = TEST_MUTEX.lock().await;
+
+    let reward_api = FakeRewardApi::start_json(serde_json::json!({
+        "account": "0x33333333333333333333333333333333",
+        "generated_at_millis": 123,
+        "window_secs": 300,
+        "online_threshold_secs": 120,
+        "summary": {
+            "active_workers": 1,
+            "total_workers": 1,
+            "hashrate_1m": 0.0,
+            "hashrate_window": 0.0,
+            "observed_hashrate_1m": 0.0,
+            "observed_hashrate_window": 0.0,
+            "assigned_hashrate_floor": 0.0,
+            "accepted_shares_1m": 0,
+            "accepted_shares_window": 0,
+            "miner_valid_shares_1m": 0,
+            "miner_valid_shares_window": 0,
+            "pending_submits": 0,
+            "confirmed_blocks_24h": 2,
+            "orphaned_blocks_24h": 1,
+            "confirmed_total": "1500000000",
+            "paid_total": "200000000",
+            "confirmed_through_height": 12345,
+            "estimated_pending_total": "50000000",
+            "last_share_at_millis": null
+        },
+        "workers": []
+    }))
+    .await?;
+    let reward_api_base = reward_api.base_url();
+    let halley_reward_api = FakeRewardApi::start_json(serde_json::json!({
+        "account": "0x33333333333333333333333333333333",
+        "generated_at_millis": 456,
+        "window_secs": 300,
+        "online_threshold_secs": 120,
+        "summary": {
+            "active_workers": 0,
+            "total_workers": 0,
+            "hashrate_1m": 0.0,
+            "hashrate_window": 0.0,
+            "observed_hashrate_1m": 0.0,
+            "observed_hashrate_window": 0.0,
+            "assigned_hashrate_floor": 0.0,
+            "accepted_shares_1m": 0,
+            "accepted_shares_window": 0,
+            "miner_valid_shares_1m": 0,
+            "miner_valid_shares_window": 0,
+            "pending_submits": 0,
+            "confirmed_blocks_24h": 3,
+            "orphaned_blocks_24h": 0,
+            "confirmed_total": "2500000000",
+            "paid_total": "400000000",
+            "confirmed_through_height": 23456,
+            "estimated_pending_total": null,
+            "last_share_at_millis": null
+        },
+        "workers": []
+    }))
+    .await?;
+    let halley_reward_api_base = halley_reward_api.base_url();
+    let state_path = process::temp_test_path("mint-state-reward", "json");
+    let socket_path = process::temp_test_path("mint-socket-reward", "sock");
+
+    let _setup = run_ctl_with_env_json(
+        &socket_path,
+        &[
+            (
+                "STC_MINT_AGENT_STATE_PATH",
+                state_path.to_string_lossy().as_ref(),
+            ),
+            ("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base.as_str()),
+            (
+                "STC_MINT_AGENT_HALLEY_REWARD_API",
+                halley_reward_api_base.as_str(),
+            ),
+        ],
+        &[
+            "wallet",
+            "set",
+            "--wallet-address",
+            "0x33333333333333333333333333333333",
+        ],
+    )
+    .await?;
+
+    let reward = run_ctl_with_env_json(
+        &socket_path,
+        &[
+            (
+                "STC_MINT_AGENT_STATE_PATH",
+                state_path.to_string_lossy().as_ref(),
+            ),
+            ("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base.as_str()),
+            (
+                "STC_MINT_AGENT_HALLEY_REWARD_API",
+                halley_reward_api_base.as_str(),
+            ),
+        ],
+        &["wallet", "reward"],
+    )
+    .await?;
+    assert_eq!(reward["account"], "0x33333333333333333333333333333333");
+    assert_eq!(reward["network"], "main");
+    assert_eq!(reward["confirmed_total_raw"], "1500000000");
+    assert_eq!(reward["confirmed_total_display"], "1.5 STC");
+    assert_eq!(reward["estimated_pending_total_display"], "0.1 STC");
+    assert_eq!(reward["paid_total_display"], "0.2 STC");
+    assert_eq!(reward["confirmed_blocks_24h"], 2);
+    assert_eq!(reward["orphaned_blocks_24h"], 1);
+    assert_eq!(
+        reward_api.last_request_path().as_deref(),
+        Some("/v1/mining/dashboard/0x33333333333333333333333333333333?window_secs=300")
+    );
+
+    let _halley = run_ctl_with_env_json(
+        &socket_path,
+        &[
+            (
+                "STC_MINT_AGENT_STATE_PATH",
+                state_path.to_string_lossy().as_ref(),
+            ),
+            ("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base.as_str()),
+            (
+                "STC_MINT_AGENT_HALLEY_REWARD_API",
+                halley_reward_api_base.as_str(),
+            ),
+        ],
+        &[
+            "wallet",
+            "set",
+            "--wallet-address",
+            "0x33333333333333333333333333333333",
+            "--network",
+            "halley",
+        ],
+    )
+    .await?;
+    let halley_reward = run_ctl_with_env_json(
+        &socket_path,
+        &[
+            (
+                "STC_MINT_AGENT_STATE_PATH",
+                state_path.to_string_lossy().as_ref(),
+            ),
+            ("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base.as_str()),
+            (
+                "STC_MINT_AGENT_HALLEY_REWARD_API",
+                halley_reward_api_base.as_str(),
+            ),
+        ],
+        &["wallet", "reward"],
+    )
+    .await?;
+    assert_eq!(halley_reward["network"], "halley");
+    assert_eq!(halley_reward["confirmed_total_display"], "2.5 STC");
+    assert_eq!(
+        halley_reward_api.last_request_path().as_deref(),
+        Some("/v1/mining/dashboard/0x33333333333333333333333333333333?window_secs=300")
+    );
+
+    let _ = std::fs::remove_file(state_path);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_cli_help_shows_wallet_miner_integrate_and_auto_mode() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
@@ -109,6 +280,16 @@ async fn agent_cli_help_shows_wallet_miner_integrate_and_auto_mode() -> Result<(
     assert!(wallet_set_stdout.contains("Payout wallet address"));
     assert!(wallet_set_stdout.contains("stable worker id"));
     assert!(wallet_set_stdout.contains("Defaults to main on first use"));
+
+    let wallet_reward_help = Command::new(&ctl_bin)
+        .args(["wallet", "reward", "--help"])
+        .output()
+        .context("run wallet reward --help failed")?;
+    assert!(wallet_reward_help.status.success());
+    let wallet_reward_stdout =
+        String::from_utf8(wallet_reward_help.stdout).context("decode wallet reward help failed")?;
+    assert!(wallet_reward_stdout.contains("external account query"));
+    assert!(wallet_reward_stdout.contains("does not depend on the local miner daemon"));
 
     let set_mode_help = Command::new(&ctl_bin)
         .args(["miner", "set-mode", "--help"])

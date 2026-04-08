@@ -61,12 +61,18 @@ The MCP bridge exposes only the public business tools:
 
 - `wallet_set`
 - `wallet_show`
+- `wallet_reward`
 - `miner_status`
 - `miner_start`
 - `miner_stop`
 - `miner_pause`
 - `miner_resume`
 - `miner_set_mode`
+
+It intentionally keeps account rewards separate from miner runtime state:
+
+- `wallet_reward` is an external pool-service account query
+- `miner_status` remains local daemon state only
 
 It intentionally hides:
 

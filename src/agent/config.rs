@@ -12,6 +12,8 @@ use std::time::Duration;
 const DEFAULT_MAIN_POOL: &str = "main-stratum.starcoin.org:9888";
 const DEFAULT_HALLEY_POOL: &str = "halley-stratum.starcoin.org:9888";
 const DEFAULT_PASS: &str = "x";
+const DEFAULT_MAIN_REWARD_API: &str = "https://main-pool.starcoin.org";
+const DEFAULT_HALLEY_REWARD_API: &str = "https://halley-pool.starcoin.org";
 const DEFAULT_AGENT_NAME: &str = "stc-mint-agent";
 const DEFAULT_KEEPALIVE_INTERVAL_SECS: u64 = 30;
 const DEFAULT_STATUS_INTERVAL_SECS: u64 = 10;
@@ -124,6 +126,16 @@ pub(crate) fn network_defaults(network: MintNetwork) -> NetworkDefaults {
                 .unwrap_or(ConsensusStrategy::CryptoNight),
         },
     }
+}
+
+pub(crate) fn reward_api_base_url(network: MintNetwork) -> String {
+    let base_url = match network {
+        MintNetwork::Main => std::env::var("STC_MINT_AGENT_MAIN_REWARD_API")
+            .unwrap_or_else(|_| DEFAULT_MAIN_REWARD_API.to_string()),
+        MintNetwork::Halley => std::env::var("STC_MINT_AGENT_HALLEY_REWARD_API")
+            .unwrap_or_else(|_| DEFAULT_HALLEY_REWARD_API.to_string()),
+    };
+    base_url.trim_end_matches('/').to_string()
 }
 
 pub(crate) fn default_requested_mode() -> BudgetMode {

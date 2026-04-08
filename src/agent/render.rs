@@ -1,3 +1,4 @@
+use super::reward::WalletRewardSnapshot;
 use super::wallet_support::{DoctorReport, WalletConfigSummary};
 use crate::{Budget, MinerEvent, MinerSnapshot};
 use serde::Serialize;
@@ -25,6 +26,30 @@ pub(crate) fn print_wallet_summary(summary: &WalletConfigSummary) {
     println!("daemon_running: {}", summary.daemon_running);
     println!("socket_path: {}", summary.socket_path);
     println!("state_path: {}", summary.state_path);
+}
+
+pub(crate) fn print_wallet_reward(snapshot: &WalletRewardSnapshot) {
+    println!("account: {}", snapshot.account);
+    println!("network: {}", serde_name(&snapshot.network));
+    println!("confirmed_total: {}", snapshot.confirmed_total_display);
+    println!(
+        "estimated_pending_total: {}",
+        snapshot
+            .estimated_pending_total_display
+            .clone()
+            .unwrap_or_else(|| "-".to_string())
+    );
+    println!("paid_total: {}", snapshot.paid_total_display);
+    println!(
+        "confirmed_through_height: {}",
+        snapshot
+            .confirmed_through_height
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    println!("confirmed_blocks_24h: {}", snapshot.confirmed_blocks_24h);
+    println!("orphaned_blocks_24h: {}", snapshot.orphaned_blocks_24h);
+    println!("source_base_url: {}", snapshot.source_base_url);
 }
 
 pub(crate) fn print_doctor_report(report: &DoctorReport) {

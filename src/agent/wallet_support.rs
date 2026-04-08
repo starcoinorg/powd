@@ -1,5 +1,6 @@
 use super::client::AgentClientError;
 use super::config::{default_network, default_requested_mode, MintProfile};
+use super::reward::RewardError;
 use super::AgentConnection;
 use crate::{BudgetMode, MinerState, MintNetwork, WalletAddress, WorkerId};
 use serde::Serialize;
@@ -55,6 +56,7 @@ pub(crate) enum WalletAgentError {
     },
     StateParse(serde_json::Error),
     Rpc(AgentClientError),
+    Reward(RewardError),
     Spawn(std::io::Error),
     DaemonBinaryNotFound(PathBuf),
     DaemonExited,
@@ -70,6 +72,7 @@ impl Display for WalletAgentError {
             Self::Io { context, source } => write!(f, "{context} failed: {source}"),
             Self::StateParse(err) => write!(f, "parse state file failed: {err}"),
             Self::Rpc(err) => err.fmt(f),
+            Self::Reward(err) => err.fmt(f),
             Self::Spawn(err) => write!(f, "spawn stc-mint-agent failed: {err}"),
             Self::DaemonBinaryNotFound(path) => {
                 write!(

@@ -245,6 +245,7 @@ fn build_command(name: &str, arguments: Value) -> Result<AgentCommand, String> {
             }))
         }
         "wallet_show" => Ok(AgentCommand::Wallet(WalletAction::Show)),
+        "wallet_reward" => Ok(AgentCommand::Wallet(WalletAction::Reward)),
         "miner_status" => Ok(AgentCommand::Miner(MinerAction::Status)),
         "miner_start" => Ok(AgentCommand::Miner(MinerAction::Start)),
         "miner_stop" => Ok(AgentCommand::Miner(MinerAction::Stop)),
@@ -284,6 +285,11 @@ fn tool_specs() -> Vec<ToolSpec> {
         ToolSpec {
             name: "wallet_show",
             description: "Show the persisted wallet address, worker id, network, and derived login.",
+            input_schema: empty_object_schema(),
+        },
+        ToolSpec {
+            name: "wallet_reward",
+            description: "Query external account reward totals from the configured pool-service HTTP API. This is separate from local miner runtime status.",
             input_schema: empty_object_schema(),
         },
         ToolSpec {

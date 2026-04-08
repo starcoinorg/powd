@@ -1,7 +1,10 @@
+#[path = "support/fake_reward_api.rs"]
+mod fake_reward_api;
 #[path = "support/process_mcp.rs"]
 mod process;
 
 use anyhow::{Context, Result};
+use fake_reward_api::FakeRewardApi;
 use process::{resolve_stc_mint_agentctl_bin, temp_test_path, TEST_MUTEX};
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -14,7 +17,37 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
 
     let state_path = temp_test_path("mcp-state", "json");
     let socket_path = temp_test_path("mcp-socket", "sock");
-    let mut child = spawn_mcp(&state_path, &socket_path).await?;
+    let reward_api = FakeRewardApi::start_json(json!({
+        "account": "0x44444444444444444444444444444444",
+        "generated_at_millis": 123,
+        "window_secs": 300,
+        "online_threshold_secs": 120,
+        "summary": {
+            "active_workers": 0,
+            "total_workers": 0,
+            "hashrate_1m": 0.0,
+            "hashrate_window": 0.0,
+            "observed_hashrate_1m": 0.0,
+            "observed_hashrate_window": 0.0,
+            "assigned_hashrate_floor": 0.0,
+            "accepted_shares_1m": 0,
+            "accepted_shares_window": 0,
+            "miner_valid_shares_1m": 0,
+            "miner_valid_shares_window": 0,
+            "pending_submits": 0,
+            "confirmed_blocks_24h": 1,
+            "orphaned_blocks_24h": 0,
+            "confirmed_total": "1000000000",
+            "paid_total": "200000000",
+            "confirmed_through_height": 999,
+            "estimated_pending_total": "300000000",
+            "last_share_at_millis": null
+        },
+        "workers": []
+    }))
+    .await?;
+    let reward_api_base = reward_api.base_url();
+    let mut child = spawn_mcp(&state_path, &socket_path, &reward_api_base).await?;
     let stdin = child.stdin.take().context("take mcp stdin failed")?;
     let stdout = child.stdout.take().context("take mcp stdout failed")?;
     let mut client = McpClient::new(stdin, stdout);
@@ -44,6 +77,7 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
         vec![
             "wallet_set",
             "wallet_show",
+            "wallet_reward",
             "miner_status",
             "miner_start",
             "miner_stop",
@@ -86,9 +120,28 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
         "0x44444444444444444444444444444444"
     );
 
-    let status = client
+    let reward = client
         .request(
             5,
+            "tools/call",
+            json!({
+                "name": "wallet_reward",
+                "arguments": {}
+            }),
+        )
+        .await?;
+    assert_eq!(
+        reward["result"]["structuredContent"]["confirmed_total_display"],
+        "1.0 STC"
+    );
+    assert_eq!(
+        reward_api.last_request_path().as_deref(),
+        Some("/v1/mining/dashboard/0x44444444444444444444444444444444?window_secs=300")
+    );
+
+    let status = client
+        .request(
+            6,
             "tools/call",
             json!({
                 "name": "miner_status",
@@ -105,7 +158,7 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
 
     let mode = client
         .request(
-            6,
+            7,
             "tools/call",
             json!({
                 "name": "miner_set_mode",
@@ -120,7 +173,7 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
 
     let set_wallet = client
         .request(
-            7,
+            8,
             "tools/call",
             json!({
                 "name": "wallet_set",
@@ -144,10 +197,15 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
     Ok(())
 }
 
-async fn spawn_mcp(state_path: &PathBuf, socket_path: &PathBuf) -> Result<Child> {
+async fn spawn_mcp(
+    state_path: &PathBuf,
+    socket_path: &PathBuf,
+    reward_api_base: &str,
+) -> Result<Child> {
     let ctl_bin = resolve_stc_mint_agentctl_bin()?;
     let child = Command::new(ctl_bin)
         .env("STC_MINT_AGENT_STATE_PATH", state_path)
+        .env("STC_MINT_AGENT_MAIN_REWARD_API", reward_api_base)
         .arg("--socket")
         .arg(socket_path)
         .arg("integrate")

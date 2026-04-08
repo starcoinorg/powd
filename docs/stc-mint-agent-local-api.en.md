@@ -42,6 +42,7 @@ The following values are derived inside the daemon and are not persisted:
 
 - `stc-mint-agentctl wallet set --wallet-address <addr> [--network main|halley]`
 - `stc-mint-agentctl wallet show`
+- `stc-mint-agentctl wallet reward`
 
 Semantics:
 
@@ -51,6 +52,8 @@ Semantics:
 - `worker_id` stays stable
 - `--network` defaults to `main` on first use; later omission keeps the current network
 - if the daemon is already running, `wallet set` reconfigures it immediately
+- `wallet reward` is a separate external account query against pool-service
+- `wallet reward` uses the persisted `wallet_address + network` and does not depend on the daemon
 
 ### Miner commands
 
@@ -92,12 +95,20 @@ Semantics:
 
 - `wallet_set`
 - `wallet_show`
+- `wallet_reward`
 - `miner_status`
 - `miner_start`
 - `miner_stop`
 - `miner_pause`
 - `miner_resume`
 - `miner_set_mode`
+
+It does not expose:
+
+Reward is deliberately separate from `miner_status`:
+
+- `miner_status` stays pure local daemon state
+- `wallet_reward` performs an external HTTP query against pool-service
 
 It does not expose:
 

@@ -6,6 +6,7 @@ mod config;
 mod dashboard;
 mod mcp;
 mod render;
+mod reward;
 mod rpc;
 mod state;
 mod wallet;
