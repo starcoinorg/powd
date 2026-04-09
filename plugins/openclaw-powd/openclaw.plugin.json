@@ -1,0 +1,16 @@
+{
+  "id": "powd",
+  "name": "powd",
+  "description": "Install and register powd for OpenClaw",
+  "contracts": {
+    "tools": [
+      "powd_install",
+      "powd_setup_status"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

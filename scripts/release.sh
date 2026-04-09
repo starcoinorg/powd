@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo="starcoinorg/powd"
+remote="origin"
+output_dir=""
+tag=""
+title=""
+notes=""
+notes_file=""
+generate_notes=0
+dry_run=0
+
+usage() {
+  cat <<'EOF'
+usage: scripts/release.sh [--repo owner/name] [--remote origin] [--tag vX.Y.Z] [--title "title"] [--notes "text"] [--notes-file path] [--generate-notes] [--output-dir path] [--dry-run]
+
+Build the powd release assets and upload them to a GitHub Release.
+
+Default behavior:
+  - read the version from Cargo.toml
+  - require plugins/openclaw-powd/package.json to use the same version
+  - ensure tag v<version> exists on the current commit and push it to origin
+  - build target/release/powd
+  - generate:
+      powd-v<version>-linux-x86_64.tar.gz
+      powd-v<version>-linux-x86_64.tar.gz.sha256
+      starcoinorg-openclaw-powd-<version>.tgz
+      starcoinorg-openclaw-powd-<version>.tgz.sha256
+  - create the GitHub Release if it does not already exist
+  - generate GitHub-style release title and notes by default
+  - let --notes / --notes-file override the default notes body
+  - upload all assets with --clobber
+
+Examples:
+  scripts/release.sh --dry-run
+  scripts/release.sh --tag v0.1.0
+  scripts/release.sh --notes-file release-notes/v0.1.0.md
+  scripts/release.sh --generate-notes
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --repo)
+      repo="$2"
+      shift 2
+      ;;
+    --remote)
+      remote="$2"
+      shift 2
+      ;;
+    --tag)
+      tag="$2"
+      shift 2
+      ;;
+    --title)
+      title="$2"
+      shift 2
+      ;;
+    --notes)
+      notes="$2"
+      shift 2
+      ;;
+    --notes-file)
+      notes_file="$2"
+      shift 2
+      ;;
+    --generate-notes)
+      generate_notes=1
+      shift
+      ;;
+    --output-dir)
+      output_dir="$2"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+require_cmd cargo
+require_cmd gh
+require_cmd git
+require_cmd npm
+require_cmd sha256sum
+require_cmd tar
+if [ "$generate_notes" -eq 1 ]; then
+  require_cmd jq
+fi
+
+cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo_root/Cargo.toml" | head -n 1)"
+plugin_version="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$repo_root/plugins/openclaw-powd/package.json" | head -n 1)"
+
+if [ -z "$cargo_version" ]; then
+  echo "failed to resolve Cargo version from $repo_root/Cargo.toml" >&2
+  exit 1
+fi
+
+if [ -z "$plugin_version" ]; then
+  echo "failed to resolve plugin version from $repo_root/plugins/openclaw-powd/package.json" >&2
+  exit 1
+fi
+
+if [ "$cargo_version" != "$plugin_version" ]; then
+  echo "version mismatch: Cargo.toml=$cargo_version, openclaw-powd package.json=$plugin_version" >&2
+  exit 1
+fi
+
+if [ -n "$notes" ] && [ -n "$notes_file" ]; then
+  echo "use either --notes or --notes-file, not both" >&2
+  exit 1
+fi
+
+if [ -n "$notes_file" ] && [ ! -f "$notes_file" ]; then
+  echo "release notes file not found: $notes_file" >&2
+  exit 1
+fi
+
+if [ -z "$notes" ] && [ -z "$notes_file" ]; then
+  generate_notes=1
+fi
+
+version="$cargo_version"
+if [ -z "$tag" ]; then
+  tag="v$version"
+fi
+
+if [ -z "$output_dir" ]; then
+  output_dir="$repo_root/.tmp/release-assets/$tag"
+fi
+
+mkdir -p "$output_dir"
+
+notes_path=""
+cleanup_notes_path=0
+if [ "$generate_notes" -eq 1 ]; then
+  if [ -n "$notes_file" ]; then
+    notes_path="$notes_file"
+  elif [ -n "$notes" ]; then
+    notes_path="$(mktemp)"
+    cleanup_notes_path=1
+    printf '%s\n' "$notes" >"$notes_path"
+  fi
+elif [ -n "$notes_file" ]; then
+  notes_path="$notes_file"
+elif [ -n "$notes" ]; then
+  notes_path="$(mktemp)"
+  cleanup_notes_path=1
+  printf '%s\n' "$notes" >"$notes_path"
+fi
+
+cleanup() {
+  if [ "$cleanup_notes_path" -eq 1 ] && [ -n "$notes_path" ]; then
+    rm -f "$notes_path"
+  fi
+}
+trap cleanup EXIT
+
+powd_binary="$repo_root/target/release/powd"
+plugin_dir="$repo_root/plugins/openclaw-powd"
+head_commit="$(git -C "$repo_root" rev-parse HEAD)"
+local_tag_commit="$(git -C "$repo_root" rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null || true)"
+remote_tag_commit="$(git -C "$repo_root" ls-remote --tags "$remote" "refs/tags/$tag" | awk '{print $1}' | head -n 1)"
+
+if [ -n "$local_tag_commit" ] && [ "$local_tag_commit" != "$head_commit" ]; then
+  echo "local tag $tag exists but does not point to HEAD ($local_tag_commit != $head_commit)" >&2
+  exit 1
+fi
+
+if [ -n "$remote_tag_commit" ] && [ "$remote_tag_commit" != "$head_commit" ]; then
+  echo "remote tag $tag exists on $remote but does not point to HEAD ($remote_tag_commit != $head_commit)" >&2
+  exit 1
+fi
+
+echo "==> building powd $version"
+cargo build --release --bin powd --manifest-path "$repo_root/Cargo.toml"
+
+echo "==> packaging powd release archive"
+powd_archive_path="$("$repo_root/scripts/pack-release.sh" "$powd_binary" "$version" "$output_dir")"
+powd_sha_path="${powd_archive_path}.sha256"
+
+echo "==> packing OpenClaw plugin"
+plugin_pack_name="$(cd "$plugin_dir" && npm pack --silent)"
+plugin_pack_source="$plugin_dir/$plugin_pack_name"
+plugin_pack_path="$output_dir/$plugin_pack_name"
+mv -f "$plugin_pack_source" "$plugin_pack_path"
+plugin_sha_path="${plugin_pack_path}.sha256"
+plugin_pack_basename="$(basename "$plugin_pack_path")"
+sha256sum "$plugin_pack_path" | awk '{print $1 "  " "'"$plugin_pack_basename"'"}' >"$plugin_sha_path"
+
+assets=(
+  "$powd_archive_path"
+  "$powd_sha_path"
+  "$plugin_pack_path"
+  "$plugin_sha_path"
+)
+
+echo "==> assets ready"
+for asset in "${assets[@]}"; do
+  echo "  - $asset"
+done
+
+if [ -z "$local_tag_commit" ]; then
+  echo "==> creating local tag $tag on $head_commit"
+  if [ "$dry_run" -eq 0 ]; then
+    git -C "$repo_root" tag -a "$tag" -m "$tag"
+  fi
+else
+  echo "==> local tag $tag already points to HEAD"
+fi
+
+if [ -z "$remote_tag_commit" ]; then
+  echo "==> pushing tag $tag to $remote"
+  if [ "$dry_run" -eq 0 ]; then
+    git -C "$repo_root" push "$remote" "refs/tags/$tag"
+  fi
+else
+  echo "==> remote tag $tag already exists on $remote"
+fi
+
+if [ "$dry_run" -eq 1 ]; then
+  echo "dry-run: not contacting GitHub"
+  exit 0
+fi
+
+echo "==> checking GitHub auth"
+gh auth status -h github.com >/dev/null
+
+release_exists=0
+if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+  release_exists=1
+fi
+
+release_title="${title:-$tag}"
+release_notes_path="$notes_path"
+cleanup_release_notes_path=0
+generate_notes_json=""
+
+if [ "$generate_notes" -eq 1 ]; then
+  echo "==> generating release notes via GitHub Release Notes API"
+  generate_notes_json="$(gh api -X POST "repos/$repo/releases/generate-notes" -f tag_name="$tag" -f target_commitish="$head_commit")"
+  generated_title="$(printf '%s\n' "$generate_notes_json" | jq -r '.name // empty')"
+  generated_body="$(printf '%s\n' "$generate_notes_json" | jq -r '.body // empty')"
+  release_title="${title:-${generated_title:-$tag}}"
+  release_notes_path="$(mktemp)"
+  cleanup_release_notes_path=1
+  if [ -n "$notes_path" ]; then
+    cat "$notes_path" >"$release_notes_path"
+    if [ -n "$generated_body" ]; then
+      printf '\n\n%s\n' "$generated_body" >>"$release_notes_path"
+    fi
+  else
+    printf '%s\n' "$generated_body" >"$release_notes_path"
+  fi
+fi
+
+cleanup_release_notes() {
+  if [ "$cleanup_release_notes_path" -eq 1 ] && [ -n "$release_notes_path" ]; then
+    rm -f "$release_notes_path"
+  fi
+}
+trap 'cleanup; cleanup_release_notes' EXIT
+
+if [ "$release_exists" -eq 0 ]; then
+  echo "==> creating release $tag in $repo"
+  gh release create "$tag" \
+    --repo "$repo" \
+    --verify-tag \
+    --title "$release_title" \
+    --notes-file "$release_notes_path"
+else
+  echo "==> updating release notes for $tag in $repo"
+  gh release edit "$tag" \
+    --repo "$repo" \
+    --title "$release_title" \
+    --notes-file "$release_notes_path"
+fi
+
+echo "==> uploading assets to $repo@$tag"
+gh release upload "$tag" --repo "$repo" --clobber "${assets[@]}"
+
+echo "==> release URL"
+gh release view "$tag" --repo "$repo" --json url --jq .url

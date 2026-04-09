@@ -142,7 +142,7 @@ The user does not need to manage:
 For development and verification inside this repository, there is also a pinned OpenClaw shell:
 
 1. `nix develop .#openclaw`
-2. `scripts/openclaw-smoke.sh`
+2. `scripts/mcp-smoke.sh`
 
 That shell:
 

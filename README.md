@@ -1,67 +1,78 @@
 # `powd`
 
-`powd` is an agent-facing local runtime that turns spare CPU into sustainable Starcoin budget.
+`powd` gives OpenClaw a local mining capability that an agent can use through natural language.
 
-The product is not "a miner with some shell commands on top". The intended shape is:
+You do not need to install or register the binary by hand. The normal path is: install the OpenClaw plugin, then ask OpenClaw to install `powd` for you.
 
-- an agent uses `powd` as a local capability
-- MCP is the supported host boundary
-- natural language sits above that capability surface
-- `powd` is the public control plane, while daemon mode stays internal
+## What You Can Do
 
-## Agent-first model
+- connect a Starcoin payout wallet
+- check mining status
+- check wallet rewards
+- start, pause, resume, or stop mining
+- switch between `auto`, `conservative`, `idle`, `balanced`, and `aggressive`
 
-`powd` exists so an agent can reason about local compute budget in the same way it reasons about files, terminals, or web tools.
+## Quick Start
 
-An agent can use `powd` to:
+### 1. Install the OpenClaw plugin
 
-- attach and persist a payout wallet
-- inspect miner runtime state and reward state
-- start, stop, pause, or resume mining
-- shift between `auto`, `conservative`, `idle`, `balanced`, and `aggressive`
-- make those actions available through natural language on top of a strict MCP tool surface
+Download the `openclaw-powd-<version>.tgz` plugin archive from the release page, then install it into OpenClaw:
 
-That means the core UX is not "memorize commands". The core UX is "let an agent understand intent, inspect the current state, and operate the runtime safely".
+```bash
+openclaw plugins install ./openclaw-powd-<version>.tgz
+openclaw gateway restart
+```
 
-## System shape
+This adds the `powd` installer inside OpenClaw. It does not start mining.
 
-The supported split is:
+### 2. In OpenClaw, say `install powd`
 
-- `powd`
-  - the only public front-end
-  - owns persisted user profile, CLI/TUI, and the MCP bridge
-- hidden `powd` daemon mode
-  - owns miner runtime, local state, event history, and automatic budgeting
-- OpenClaw or another MCP host
-  - discovers `powd` tools
-  - routes natural language into those tools
-  - provides higher-level agent UX
+Once the plugin is loaded, tell OpenClaw:
 
-This keeps the long-lived runtime in deterministic code while letting the host layer provide agent behavior and natural-language interaction.
+```text
+install powd
+```
 
-## Integration boundary
+OpenClaw will:
 
-`powd` is designed to be consumed by hosts, not patched into them.
+- download the matching `powd` binary from GitHub Releases
+- install it locally
+- register it as an MCP server
 
-The MCP surface intentionally exposes a small business tool set around wallet identity, runtime control, reward lookup, and mining mode. That is the stable layer an agent can learn and automate against. The daemon's private socket protocol, raw budget controls, and internal event plumbing stay behind that boundary.
+After that, you can do the rest through chat.
 
-For OpenClaw, the integration model is standard local MCP over `stdio`. `powd` provides the registration shape, launches the bridge, and self-bootstraps its hidden daemon mode when runtime work is needed. The host only needs to register `powd` and call tools.
+## What To Say In OpenClaw
 
-Releases after the single-entrypoint refactor no longer ship `powctl`. Existing scripts or host registrations that still call `powctl` need to be updated to `powd`.
+- `Set my wallet to 0x...`
+- `Show my mining status`
+- `How much reward has this wallet earned?`
+- `Start mining`
+- `Pause mining for now`
+- `Switch to balanced mode`
+- `Set mining mode to auto`
 
-## Why this matters
+## What To Expect
 
-If `powd` were only a CLI, natural language would just be a thin translation layer over shell commands.
+- wallet settings are stored locally on your machine
+- OpenClaw talks to `powd` through MCP
+- `powd` starts its own local runtime when it needs to do work
+- installing `powd` does not automatically start mining
 
-The point of `powd` is narrower and more useful:
+## Troubleshooting
 
-- keep the execution model local and deterministic
-- expose a host-friendly capability surface
-- let agents operate that surface without inventing a second runtime
+- `The /powd command does not appear`
+  Restart the OpenClaw gateway after installing the plugin.
 
-In other words, `powd` is the local compute-budget runtime, and the host is where agent behavior lives.
+- `install powd fails`
+  `powd` plugin v1 currently supports Linux x86_64 and needs access to GitHub Releases.
 
-## Docs
+- `OpenClaw still points to an older powd path`
+  Ask OpenClaw to `install powd` again. The installer repairs the saved MCP registration.
+
+- `Mining commands fail because no wallet is configured`
+  Ask OpenClaw to set your wallet first.
+
+## Learn More
 
 - [Docs index](docs/README.md)
 - [OpenClaw integration](docs/powd-openclaw-integration.en.md)

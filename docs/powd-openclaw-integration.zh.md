@@ -142,7 +142,7 @@ MCP bridge 只暴露公开业务工具：
 仓库里另外提供一条固定版本的 OpenClaw 验证路径：
 
 1. `nix develop .#openclaw`
-2. `scripts/openclaw-smoke.sh`
+2. `scripts/mcp-smoke.sh`
 
 这条路径会：
 

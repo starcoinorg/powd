@@ -1,0 +1,44 @@
+{
+  "name": "@starcoinorg/openclaw-powd",
+  "version": "1.0.0-rc.1",
+  "description": "OpenClaw plugin that installs and registers powd",
+  "type": "module",
+  "files": [
+    "index.js",
+    "src/",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test ./test/*.test.js"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.4.8"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "install": {
+      "npmSpec": "@starcoinorg/openclaw-powd",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.4.8"
+    },
+    "compat": {
+      "pluginApi": ">=2026.4.8"
+    },
+    "build": {
+      "openclawVersion": "2026.4.8",
+      "pluginSdkVersion": "2026.4.8"
+    },
+    "release": {
+      "publishToClawHub": true,
+      "publishToNpm": true
+    }
+  }
+}
