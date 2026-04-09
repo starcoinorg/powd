@@ -9,6 +9,7 @@ import { collectSetupStatus, resolveManagedPaths, toPublicSetupStatus } from "./
 import { upsertPowdPluginAllow, upsertPowdServer } from "./config.js";
 import { downloadFile } from "./download.js";
 import { extractBinaryFromArchive } from "./archive.js";
+import { shutdownPowdDaemon } from "./daemon.js";
 
 function log(logger, level, message) {
   const writer = logger?.[level];
@@ -99,6 +100,14 @@ async function installReleaseBinary({
 }
 
 function buildInstallMessage(params) {
+  if (params.replaceRequired) {
+    return [
+      `powd ${params.currentVersion ?? "(unknown)"} is already installed.`,
+      `Re-run this install with --replace to stop the current daemon and switch to ${params.version}.`,
+      "After replacing the binary, restart the OpenClaw gateway so the MCP server reloads the new version.",
+    ].join("\n");
+  }
+
   if (
     params.status.installed &&
     params.status.registered &&
@@ -113,17 +122,25 @@ function buildInstallMessage(params) {
   if (params.downloaded) {
     lines.push(`Installed version: ${params.version}.`);
   }
+  if (params.replaced) {
+    lines.push("The existing powd runtime was replaced.");
+  }
   if (params.overwroteForeignRegistration) {
     lines.push("An existing powd MCP registration was replaced.");
   }
   lines.push("Mining has not started yet.");
   lines.push("Next, you can ask OpenClaw to set your wallet, show mining status, or start mining.");
-  lines.push("If powd tools do not appear immediately, restart the OpenClaw gateway.");
+  if (params.replaced) {
+    lines.push("Restart the OpenClaw gateway so the MCP server reloads the new powd binary.");
+  } else {
+    lines.push("If powd tools do not appear immediately, restart the OpenClaw gateway.");
+  }
   return lines.join("\n");
 }
 
 export async function installPowd({
   version,
+  replace = false,
   stateDir,
   configApi,
   logger,
@@ -131,6 +148,7 @@ export async function installPowd({
   releaseBaseUrl,
   releaseApiBaseUrl,
   fetchImpl,
+  shutdownDaemon = shutdownPowdDaemon,
 }) {
   const currentConfig = await Promise.resolve(configApi.loadConfig());
   const initialStatus = await collectSetupStatus({
@@ -148,18 +166,38 @@ export async function installPowd({
   }
 
   let downloaded = false;
+  let replaced = false;
+  let replaceRequired = false;
   let targetVersion = null;
 
   if (typeof version === "string" && version.trim()) {
     targetVersion = normalizeVersion(version);
-  } else if (!initialStatus.installed || !initialStatus.version) {
-    targetVersion = await resolveLatestStableVersion({
-      apiBaseOverride: releaseApiBaseUrl,
-      fetchImpl,
-    });
+  } else {
+    targetVersion =
+      initialStatus.installed && initialStatus.version && !replace
+        ? initialStatus.version
+        : await resolveLatestStableVersion({
+            apiBaseOverride: releaseApiBaseUrl,
+            fetchImpl,
+          });
   }
 
-  if (targetVersion && (!initialStatus.installed || initialStatus.version !== targetVersion)) {
+  const needsVersionChange =
+    Boolean(targetVersion) && (!initialStatus.installed || initialStatus.version !== targetVersion);
+  replaceRequired = initialStatus.installed && needsVersionChange && !replace;
+
+  if (!replaceRequired && targetVersion && (needsVersionChange || replace)) {
+    if (initialStatus.installed && replace) {
+      const shutdown = await shutdownDaemon({ logger });
+      if (shutdown.running && !shutdown.stopped) {
+        return {
+          ok: false,
+          status: toPublicSetupStatus(initialStatus),
+          message: `powd is still running at ${shutdown.socketPath}. Stop the current daemon before replacing the binary.`,
+        };
+      }
+      replaced = true;
+    }
     await installReleaseBinary({
       version: targetVersion,
       stateDir,
@@ -203,12 +241,17 @@ export async function installPowd({
   });
 
   return {
-    ok: true,
+    ok: !replaceRequired,
     status: toPublicSetupStatus(finalStatus),
     downloaded,
+    replaced,
+    replaceRequired,
     overwroteForeignRegistration,
     message: buildInstallMessage({
       downloaded,
+      replaced,
+      replaceRequired,
+      currentVersion: initialStatus.version,
       overwroteForeignRegistration,
       status: finalStatus,
       version: targetVersion ?? finalStatus.version,

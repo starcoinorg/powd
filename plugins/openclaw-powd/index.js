@@ -27,6 +27,10 @@ function extractToolVersion(params) {
   return normalizeRequestedVersion(params?.version);
 }
 
+function extractToolReplace(params) {
+  return params?.replace === true;
+}
+
 function extractEventVersion(event) {
   return (
     normalizeRequestedVersion(event?.params?.version) ??
@@ -67,10 +71,26 @@ async function resolveInstallReleaseOverrides(api, configOverride) {
   return resolveReleaseOverrides(resolvePluginConfig(config));
 }
 
-async function runInstall(api, requestedVersion, configOverride) {
+function parseCommandInstallArgs(parts) {
+  let version;
+  let replace = false;
+  for (const part of parts) {
+    if (part === "--replace") {
+      replace = true;
+      continue;
+    }
+    if (!version) {
+      version = normalizeRequestedVersion(part);
+    }
+  }
+  return { version, replace };
+}
+
+async function runInstall(api, requestedVersion, replace = false, configOverride) {
   const releaseOverrides = await resolveInstallReleaseOverrides(api, configOverride);
   return await installPowd({
     version: normalizeRequestedVersion(requestedVersion),
+    replace,
     stateDir: api.runtime.state.resolveStateDir(),
     configApi: api.runtime.config,
     logger: api.logger,
@@ -132,10 +152,15 @@ export default definePluginEntry({
             type: "string",
             description: "Optional powd release version to install, such as 1.0.0 or 1.0.0-rc.1.",
           },
+          replace: {
+            type: "boolean",
+            description:
+              "When true, stop the current local powd daemon and replace the installed binary. Use this for upgrades or reinstalls.",
+          },
         },
       },
       async execute(_toolCallId, params) {
-        const result = await runInstall(api, extractToolVersion(params));
+        const result = await runInstall(api, extractToolVersion(params), extractToolReplace(params));
         return buildInstallToolResult(result);
       },
     });
@@ -146,6 +171,7 @@ export default definePluginEntry({
       }
 
       const version = extractEventVersion(event);
+      const replace = extractToolReplace(event?.params) || extractToolReplace(event?.arguments) || extractToolReplace(event?.args);
       const config = await loadConfig(api.runtime.config);
       const status = await collectSetupStatus({
         expectedVersion: version,
@@ -154,7 +180,7 @@ export default definePluginEntry({
       });
 
       return {
-        requireApproval: buildApprovalRequest(status, version),
+        requireApproval: buildApprovalRequest(status, version, replace),
       };
     });
 
@@ -167,14 +193,15 @@ export default definePluginEntry({
         const args = (ctx.args ?? "").trim();
         const parts = args.split(/\s+/).filter(Boolean);
         const action = parts[0] ?? "status";
-        const version = normalizeRequestedVersion(parts[1]);
 
         if (action === "install") {
-          const result = await runInstall(api, version);
+          const { version, replace } = parseCommandInstallArgs(parts.slice(1));
+          const result = await runInstall(api, version, replace);
           return buildInstallCommandReply(result);
         }
 
         if (action === "status" || action === "help") {
+          const version = normalizeRequestedVersion(parts[1]);
           const status = await runStatus(api, version);
           return buildStatusCommandReply(status);
         }
@@ -183,7 +210,7 @@ export default definePluginEntry({
           text:
             "Usage:\n" +
             "/powd status [version]\n" +
-            "/powd install [version]",
+            "/powd install [version] [--replace]",
         };
       },
     });
@@ -193,7 +220,7 @@ export default definePluginEntry({
         registerPowdCli({
           program,
           api,
-          runInstall: async (version) => buildInstallToolResult(await runInstall(api, version, config)),
+          runInstall: async (version, replace) => buildInstallToolResult(await runInstall(api, version, replace, config)),
           runStatus: async (version) => buildStatusToolResult(await runStatus(api, version)),
         });
       },

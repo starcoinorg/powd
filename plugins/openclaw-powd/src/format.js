@@ -1,4 +1,4 @@
-export function buildApprovalRequest(status, version) {
+export function buildApprovalRequest(status, version, replace) {
   const versionPhrase = version
     ? `Download powd ${version} from GitHub Releases`
     : "Download the latest stable powd release from GitHub Releases";
@@ -6,6 +6,9 @@ export function buildApprovalRequest(status, version) {
     `${versionPhrase}, install it locally, and register it with OpenClaw.`,
     "This will not set a wallet or start mining.",
   ];
+  if (replace) {
+    lines.push("This will also stop the current local powd daemon so the installed binary can be replaced.");
+  }
   if (status.foreignRegistration) {
     lines.push("An existing powd MCP registration points somewhere else and will be replaced.");
   }

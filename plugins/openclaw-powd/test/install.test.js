@@ -233,6 +233,114 @@ test("installPowd accepts an explicit pinned version", async () => {
   }
 });
 
+test("installPowd requires --replace before switching an existing install to a different version", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
+  try {
+    const currentVersion = "1.0.0";
+    const requestedVersion = "1.0.1";
+    await createReleaseFixture(tempRoot, requestedVersion);
+
+    const stateDir = path.join(tempRoot, "state");
+    const managedBinaryPath = path.join(stateDir, "plugins", "powd", "bin", "powd");
+    const metadataPath = path.join(stateDir, "plugins", "powd", "install.json");
+    await fs.mkdir(path.dirname(managedBinaryPath), { recursive: true });
+    await fs.writeFile(managedBinaryPath, "#!/usr/bin/env sh\necho powd\n", "utf8");
+    await fs.chmod(managedBinaryPath, 0o755);
+    await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+    await fs.writeFile(
+      metadataPath,
+      `${JSON.stringify({ version: currentVersion, binaryPath: managedBinaryPath, installedAt: new Date().toISOString() }, null, 2)}\n`,
+      "utf8",
+    );
+    const configApi = createConfigApi({
+      mcp: {
+        servers: {
+          powd: {
+            command: managedBinaryPath,
+            args: ["mcp", "serve"],
+            env: {},
+          },
+        },
+      },
+      plugins: { allow: ["powd"] },
+    });
+
+    const result = await installPowd({
+      version: requestedVersion,
+      stateDir,
+      configApi,
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.replaceRequired, true);
+    assert.equal(result.status.version, currentVersion);
+    assert.match(result.message, /--replace/);
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("installPowd replaces an existing install when --replace is requested", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
+  try {
+    const currentVersion = "1.0.0";
+    const nextVersion = "1.0.1";
+    await createReleaseFixture(tempRoot, nextVersion);
+
+    await withHttpServer(tempRoot, async (baseUrl) => {
+      const stateDir = path.join(tempRoot, "state");
+      const managedBinaryPath = path.join(stateDir, "plugins", "powd", "bin", "powd");
+      const metadataPath = path.join(stateDir, "plugins", "powd", "install.json");
+      await fs.mkdir(path.dirname(managedBinaryPath), { recursive: true });
+      await fs.writeFile(managedBinaryPath, "#!/usr/bin/env sh\necho powd-old\n", "utf8");
+      await fs.chmod(managedBinaryPath, 0o755);
+      await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+      await fs.writeFile(
+        metadataPath,
+        `${JSON.stringify({ version: currentVersion, binaryPath: managedBinaryPath, installedAt: new Date().toISOString() }, null, 2)}\n`,
+        "utf8",
+      );
+      const configApi = createConfigApi({
+        mcp: {
+          servers: {
+            powd: {
+              command: managedBinaryPath,
+              args: ["mcp", "serve"],
+              env: {},
+            },
+          },
+        },
+        plugins: { allow: ["powd"] },
+      });
+
+      let shutdownCalled = false;
+      const result = await installPowd({
+        stateDir,
+        configApi,
+        replace: true,
+        releaseBaseUrl: baseUrl,
+        releaseApiBaseUrl: baseUrl.replace(/\/releases\/download$/, "/api/releases"),
+        shutdownDaemon: async () => {
+          shutdownCalled = true;
+          return {
+            running: true,
+            stopped: true,
+            socketPath: path.join(tempRoot, "powd.sock"),
+          };
+        },
+      });
+
+      assert.equal(shutdownCalled, true);
+      assert.equal(result.ok, true);
+      assert.equal(result.replaced, true);
+      assert.equal(result.status.version, nextVersion);
+      assert.match(result.message, /Restart the OpenClaw gateway/);
+    });
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("installPowd supports darwin arm64 assets when the host platform is Apple Silicon", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
   try {

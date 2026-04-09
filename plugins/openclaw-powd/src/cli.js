@@ -32,9 +32,10 @@ export function registerPowdCli({ program, runInstall, runStatus }) {
     .command("install")
     .description("Install powd from GitHub Releases and register it with OpenClaw")
     .option("--version <version>", "install a specific powd release instead of the latest stable one")
+    .option("--replace", "stop the current local powd daemon and replace the installed binary")
     .option("--json", "print JSON")
     .action(async (options) => {
-      const result = await runInstall(options.version);
+      const result = await runInstall(options.version, Boolean(options.replace));
       printResult(result, Boolean(options.json));
     });
 }
