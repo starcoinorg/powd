@@ -8,8 +8,6 @@ source_ref=""
 source_commit=""
 dry_run=0
 json=0
-staging_root=""
-publish_path=""
 
 usage() {
   cat <<'EOF'
@@ -19,7 +17,6 @@ Publish the OpenClaw powd plugin to ClawHub.
 
 Default behavior:
   - publish ./plugins/openclaw-powd
-  - stage the plugin from npm pack output so tests and local-only files are excluded
   - derive the plugin version from plugins/openclaw-powd/package.json
   - derive source repo from git remote origin
   - prefer refs/tags/v<version> when that tag exists
@@ -94,9 +91,6 @@ normalize_repo() {
 
 require_cmd clawhub
 require_cmd git
-require_cmd npm
-require_cmd node
-require_cmd tar
 
 plugin_version="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$source_path/package.json" | head -n 1)"
 if [ -z "$plugin_version" ]; then
@@ -107,8 +101,6 @@ fi
 if [ -z "$source_repo" ]; then
   source_repo="$(normalize_repo "$(git -C "$repo_root" remote get-url origin)")"
 fi
-
-source_subpath="${source_path#$repo_root/}"
 
 head_commit="$(git -C "$repo_root" rev-parse HEAD)"
 branch_name="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
@@ -132,41 +124,10 @@ if [ -z "$source_commit" ]; then
 fi
 
 cmd=(clawhub package publish "$source_path" --source-repo "$source_repo" --source-commit "$source_commit")
-cleanup() {
-  if [ -n "$staging_root" ] && [ -d "$staging_root" ]; then
-    rm -rf "$staging_root"
-  fi
-}
-trap cleanup EXIT
-
-staging_root="$(mktemp -d)"
-pack_json="$(cd "$source_path" && npm pack --json --pack-destination "$staging_root")"
-pack_file="$(printf '%s\n' "$pack_json" | node -e 'const fs=require("fs"); const raw=fs.readFileSync(0,"utf8"); const data=JSON.parse(raw); if(!Array.isArray(data)||!data[0]||!data[0].filename){process.exit(1)} process.stdout.write(data[0].filename)')"
-if [ -z "$pack_file" ] || [ ! -f "$staging_root/$pack_file" ]; then
-  echo "failed to stage plugin package via npm pack" >&2
-  exit 1
-fi
-
-mkdir -p "$staging_root/extract"
-tar -xzf "$staging_root/$pack_file" -C "$staging_root/extract"
-publish_path="$staging_root/extract/package"
-if [ ! -f "$publish_path/openclaw.plugin.json" ]; then
-  echo "staged plugin package is missing openclaw.plugin.json" >&2
-  exit 1
-fi
-
-node -e '
-  const fs = require("fs");
-  const path = process.argv[1];
-  const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
-  delete pkg.files;
-  fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
-' "$publish_path/package.json"
-
-cmd=(clawhub package publish "$publish_path" --source-repo "$source_repo" --source-commit "$source_commit")
 if [ -n "$source_ref" ]; then
   cmd+=(--source-ref "$source_ref")
 fi
+source_subpath="${source_path#$repo_root/}"
 if [ "$source_subpath" != "$source_path" ] && [ -n "$source_subpath" ]; then
   cmd+=(--source-path "$source_subpath")
 fi
@@ -176,7 +137,6 @@ fi
 
 echo "==> publishing OpenClaw plugin to ClawHub"
 echo "  source: $source_path"
-echo "  staged: $publish_path"
 echo "  repo:   $source_repo"
 if [ -n "$source_ref" ]; then
   echo "  ref:    $source_ref"
