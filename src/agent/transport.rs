@@ -16,7 +16,7 @@ use parity_tokio_ipc::Endpoint as PipeEndpoint;
 #[cfg(unix)]
 pub type LocalConnection = UnixStream;
 #[cfg(windows)]
-trait LocalIo: AsyncRead + AsyncWrite {}
+pub(crate) trait LocalIo: AsyncRead + AsyncWrite {}
 #[cfg(windows)]
 impl<T> LocalIo for T where T: AsyncRead + AsyncWrite + ?Sized {}
 #[cfg(windows)]

@@ -86,6 +86,8 @@ jobs:
           npm test
 
       - name: Bootstrap OpenClaw for plugin smoke
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           corepack enable
           OPENCLAW_VERSION="$(sed -n 's/^  version = "\(.*\)";$/\1/p' openclaw.nix | head -n 1)"
@@ -146,6 +148,8 @@ jobs:
 
       - name: Bootstrap OpenClaw for plugin smoke
         shell: pwsh
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           corepack enable
           $match = Select-String -Path openclaw.nix -Pattern '^  version = "(.+)";$' | Select-Object -First 1

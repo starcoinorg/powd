@@ -237,6 +237,7 @@ fn logical_cpus() -> usize {
         .unwrap_or(1)
 }
 
+#[cfg(not(windows))]
 fn remove_stale_socket(path: &Path) -> Result<()> {
     if path.exists() {
         std::fs::remove_file(path)
@@ -245,6 +246,7 @@ fn remove_stale_socket(path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn ensure_socket_parent(path: &Path) -> Result<()> {
     let Some(parent) = path.parent() else {
         return Ok(());
@@ -264,21 +266,9 @@ fn ensure_socket_parent(path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn default_private_runtime_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        std::env::var_os("LOCALAPPDATA")
-            .map(|root| PathBuf::from(root).join("powd").join("runtime"))
-            .or_else(|| {
-                std::env::var_os("USERPROFILE")
-                    .map(|home| PathBuf::from(home).join(".powd").join("runtime"))
-            })
-    }
-
-    #[cfg(not(windows))]
-    {
-        std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".powd"))
-    }
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".powd"))
 }
 
 fn default_state_root() -> PathBuf {
