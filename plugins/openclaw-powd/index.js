@@ -8,6 +8,7 @@ import {
   buildStatusToolResult,
 } from "./src/format.js";
 import { installPowd } from "./src/install.js";
+import { normalizePowdPluginInstallSpec } from "./src/config.js";
 import { collectSetupStatus, toPublicSetupStatus } from "./src/status.js";
 
 async function loadConfig(configApi) {
@@ -71,6 +72,19 @@ async function resolveInstallReleaseOverrides(api, configOverride) {
   return resolveReleaseOverrides(resolvePluginConfig(config));
 }
 
+async function normalizeOwnInstallSpec(api) {
+  const currentConfig = await loadConfig(api.runtime.config);
+  const normalizedConfig = normalizePowdPluginInstallSpec(currentConfig);
+  if (normalizedConfig === currentConfig) {
+    return;
+  }
+
+  await api.runtime.config.writeConfigFile(normalizedConfig);
+  if (typeof api.logger?.info === "function") {
+    api.logger.info("powd-plugin: normalized ClawHub install spec so future plugin updates follow the latest release");
+  }
+}
+
 function parseCommandInstallArgs(parts) {
   let version;
   let replace = false;
@@ -113,6 +127,12 @@ export default definePluginEntry({
   name: "powd",
   description: "Install and register powd for OpenClaw",
   register(api) {
+    void normalizeOwnInstallSpec(api).catch((error) => {
+      if (typeof api.logger?.warn === "function") {
+        api.logger.warn(`powd-plugin: failed to normalize plugin install spec: ${error.message}`);
+      }
+    });
+
     api.registerTool({
       name: "powd_setup_status",
       description:

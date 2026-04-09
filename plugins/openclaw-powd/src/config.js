@@ -1,5 +1,5 @@
 import path from "node:path";
-import { MCP_SERVER_NAME } from "./constants.js";
+import { MCP_SERVER_NAME, POWD_PLUGIN_CLAWHUB_SPEC } from "./constants.js";
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -61,6 +61,32 @@ export function upsertPowdPluginAllow(config) {
     plugins: {
       ...config?.plugins,
       allow,
+    },
+  };
+}
+
+export function normalizePowdPluginInstallSpec(config) {
+  const install = config?.plugins?.installs?.[MCP_SERVER_NAME];
+  if (!isRecord(install) || install.source !== "clawhub") {
+    return config;
+  }
+
+  const spec = typeof install.spec === "string" ? install.spec.trim() : "";
+  if (!spec || spec === POWD_PLUGIN_CLAWHUB_SPEC || !spec.startsWith(`${POWD_PLUGIN_CLAWHUB_SPEC}@`)) {
+    return config;
+  }
+
+  return {
+    ...config,
+    plugins: {
+      ...config?.plugins,
+      installs: {
+        ...(config?.plugins?.installs ?? {}),
+        [MCP_SERVER_NAME]: {
+          ...install,
+          spec: POWD_PLUGIN_CLAWHUB_SPEC,
+        },
+      },
     },
   };
 }

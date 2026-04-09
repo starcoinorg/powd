@@ -4,6 +4,7 @@ import {
   buildPowdServer,
   getPowdServer,
   isManagedPowdServer,
+  normalizePowdPluginInstallSpec,
   upsertPowdPluginAllow,
   upsertPowdServer,
 } from "../src/config.js";
@@ -52,4 +53,22 @@ test("upsertPowdPluginAllow appends powd without clobbering existing allow entri
 
   assert.deepEqual(cfg.plugins.allow, ["openai", "telegram", "powd"]);
   assert.deepEqual(upsertPowdPluginAllow(cfg).plugins.allow, ["openai", "telegram", "powd"]);
+});
+
+test("normalizePowdPluginInstallSpec converts a pinned ClawHub spec into the unpinned tracking spec", () => {
+  const original = {
+    plugins: {
+      installs: {
+        powd: {
+          source: "clawhub",
+          spec: "clawhub:@starcoinorg/openclaw-powd@1.0.0-rc.7",
+          version: "1.0.0-rc.7",
+        },
+      },
+    },
+  };
+
+  const normalized = normalizePowdPluginInstallSpec(original);
+  assert.equal(normalized.plugins.installs.powd.spec, "clawhub:@starcoinorg/openclaw-powd");
+  assert.equal(normalized.plugins.installs.powd.version, "1.0.0-rc.7");
 });
