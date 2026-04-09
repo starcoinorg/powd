@@ -1,6 +1,6 @@
 {
   "name": "@starcoinorg/openclaw-powd",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "description": "powd gives OpenClaw a local mining capability that an agent can use through natural language.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/starcoinorg/powd/tree/master/plugins/openclaw-powd",
@@ -16,8 +16,7 @@
   "files": [
     "index.js",
     "src/",
-    "openclaw.plugin.json",
-    "README.md"
+    "openclaw.plugin.json"
   ],
   "scripts": {
     "test": "node --test ./test/*.test.js"
