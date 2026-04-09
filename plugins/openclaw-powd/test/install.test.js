@@ -157,7 +157,8 @@ test("installPowd downloads the latest stable release when no version is pinned"
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
   try {
     const version = "1.2.3";
-    await createReleaseFixture(tempRoot, version);
+    const platform = resolvePlatform("linux", "x64");
+    await createReleaseFixture(tempRoot, version, platform);
 
     await withHttpServer(tempRoot, async (baseUrl) => {
       const configApi = createConfigApi({});
@@ -165,6 +166,7 @@ test("installPowd downloads the latest stable release when no version is pinned"
       const result = await installPowd({
         stateDir: path.join(tempRoot, "state"),
         configApi,
+        platform,
         releaseBaseUrl: baseUrl,
         releaseApiBaseUrl: baseUrl.replace(/\/releases\/download$/, "/api/releases"),
       });
@@ -194,7 +196,8 @@ test("installPowd follows redirected release asset downloads", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
   try {
     const version = "1.2.3";
-    await createReleaseFixture(tempRoot, version);
+    const platform = resolvePlatform("linux", "x64");
+    await createReleaseFixture(tempRoot, version, platform);
 
     await withRedirectingReleaseServer(tempRoot, async (baseUrl) => {
       const configApi = createConfigApi({});
@@ -203,6 +206,7 @@ test("installPowd follows redirected release asset downloads", async () => {
         version,
         stateDir: path.join(tempRoot, "state"),
         configApi,
+        platform,
         releaseBaseUrl: baseUrl,
       });
 
@@ -220,7 +224,8 @@ test("installPowd replaces a foreign powd registration without forcing a network
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
   try {
     const version = "1.2.3";
-    await createReleaseFixture(tempRoot, version);
+    const platform = resolvePlatform("linux", "x64");
+    await createReleaseFixture(tempRoot, version, platform);
 
     await withHttpServer(tempRoot, async (baseUrl) => {
       const stateDir = path.join(tempRoot, "state");
@@ -250,6 +255,7 @@ test("installPowd replaces a foreign powd registration without forcing a network
       const result = await installPowd({
         stateDir,
         configApi,
+        platform,
         releaseBaseUrl: baseUrl,
       });
 
@@ -268,7 +274,8 @@ test("installPowd accepts an explicit pinned version", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
   try {
     const version = "1.0.0-rc.1";
-    await createReleaseFixture(tempRoot, version);
+    const platform = resolvePlatform("linux", "x64");
+    await createReleaseFixture(tempRoot, version, platform);
 
     await withHttpServer(tempRoot, async (baseUrl) => {
       const configApi = createConfigApi({});
@@ -277,6 +284,7 @@ test("installPowd accepts an explicit pinned version", async () => {
         version: `v${version}`,
         stateDir: path.join(tempRoot, "state"),
         configApi,
+        platform,
         releaseBaseUrl: baseUrl,
       });
 
@@ -342,7 +350,8 @@ test("installPowd replaces an existing install when --replace is requested", asy
   try {
     const currentVersion = "1.0.0";
     const nextVersion = "1.0.1";
-    await createReleaseFixture(tempRoot, nextVersion);
+    const platform = resolvePlatform("linux", "x64");
+    await createReleaseFixture(tempRoot, nextVersion, platform);
 
     await withHttpServer(tempRoot, async (baseUrl) => {
       const stateDir = path.join(tempRoot, "state");
@@ -375,6 +384,7 @@ test("installPowd replaces an existing install when --replace is requested", asy
         stateDir,
         configApi,
         replace: true,
+        platform,
         releaseBaseUrl: baseUrl,
         releaseApiBaseUrl: baseUrl.replace(/\/releases\/download$/, "/api/releases"),
         shutdownDaemon: async () => {
