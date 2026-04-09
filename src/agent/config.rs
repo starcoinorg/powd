@@ -2,7 +2,9 @@ use crate::{
     default_budget_for_mode, Budget, BudgetMode, ConfigError, MinerConfig, MintNetwork,
     StratumLogin, WalletAddress, WorkerName,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
+#[cfg(not(windows))]
+use anyhow::Context;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use starcoin_types::genesis_config::ConsensusStrategy;
@@ -201,7 +203,7 @@ pub fn restrict_socket_permissions(_path: &Path) -> Result<()> {
 pub fn default_socket_path() -> PathBuf {
     #[cfg(windows)]
     {
-        return PathBuf::from(default_windows_pipe_path());
+        PathBuf::from(default_windows_pipe_path())
     }
 
     #[cfg(not(windows))]
