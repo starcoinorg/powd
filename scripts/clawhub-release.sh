@@ -19,9 +19,8 @@ Default behavior:
   - publish ./plugins/openclaw-powd
   - derive the plugin version from plugins/openclaw-powd/package.json
   - derive source repo from git remote origin
-  - prefer refs/tags/v<version> when that tag exists
-  - otherwise fall back to the current branch ref
-  - use the matching commit for the chosen ref
+  - default source ref to the current branch when available
+  - default source commit to the current HEAD
 
 Notes:
   - ClawHub package publish records source repo / source ref / source commit.
@@ -104,23 +103,15 @@ fi
 
 head_commit="$(git -C "$repo_root" rev-parse HEAD)"
 branch_name="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD)"
-default_tag="v$plugin_version"
-tag_commit="$(git -C "$repo_root" rev-parse -q --verify "refs/tags/$default_tag^{commit}" 2>/dev/null || true)"
 
 if [ -z "$source_ref" ]; then
-  if [ -n "$tag_commit" ]; then
-    source_ref="refs/tags/$default_tag"
-  elif [ "$branch_name" != "HEAD" ]; then
+  if [ "$branch_name" != "HEAD" ]; then
     source_ref="refs/heads/$branch_name"
   fi
 fi
 
 if [ -z "$source_commit" ]; then
-  if [ -n "$tag_commit" ]; then
-    source_commit="$tag_commit"
-  else
-    source_commit="$head_commit"
-  fi
+  source_commit="$head_commit"
 fi
 
 cmd=(clawhub package publish "$source_path" --source-repo "$source_repo" --source-commit "$source_commit")

@@ -16,7 +16,8 @@
   "files": [
     "index.js",
     "src/",
-    "openclaw.plugin.json"
+    "openclaw.plugin.json",
+    "README.md"
   ],
   "scripts": {
     "test": "node --test ./test/*.test.js"
