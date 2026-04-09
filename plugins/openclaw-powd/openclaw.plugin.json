@@ -1,7 +1,7 @@
 {
   "id": "powd",
   "name": "powd",
-  "description": "Install and register powd for OpenClaw",
+  "description": "powd gives OpenClaw a local mining capability that an agent can use through natural language.",
   "contracts": {
     "tools": [
       "powd_install",

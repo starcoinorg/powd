@@ -16,10 +16,10 @@ You do not need to install or register the binary by hand. The normal path is: i
 
 ### 1. Install the OpenClaw plugin
 
-Download the `openclaw-powd-<version>.tgz` plugin archive from the release page, then install it into OpenClaw:
+Install the `powd` plugin from ClawHub:
 
 ```bash
-openclaw plugins install ./openclaw-powd-<version>.tgz
+openclaw plugins install clawhub:@starcoinorg/openclaw-powd
 openclaw gateway restart
 ```
 

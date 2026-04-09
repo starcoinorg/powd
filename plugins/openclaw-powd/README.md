@@ -1,6 +1,21 @@
 # `@starcoinorg/openclaw-powd`
 
-Native OpenClaw plugin that installs `powd` from GitHub Releases and registers it as a local MCP server.
+`powd` gives OpenClaw a local mining capability that an agent can use through natural language.
+
+## How To Use In OpenClaw
+
+1. Install the plugin in OpenClaw:
+
+   ```bash
+   openclaw plugins install clawhub:@starcoinorg/openclaw-powd
+   openclaw gateway restart
+   ```
+
+2. In OpenClaw, say `install powd`.
+3. Then keep going in chat, for example:
+   - `set my wallet to 0x...`
+   - `show my mining status`
+   - `start mining`
 
 ## What it does
 
@@ -12,7 +27,7 @@ Native OpenClaw plugin that installs `powd` from GitHub Releases and registers i
 
 It does **not** set a wallet or start mining automatically.
 
-## Packaging
+## Local Packaging
 
 Create a local plugin archive with:
 
