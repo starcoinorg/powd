@@ -4,7 +4,6 @@ use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
-use tokio::net::UnixStream;
 
 use super::process::{resolve_powd_bin, temp_test_path};
 
@@ -69,7 +68,10 @@ impl Drop for AgentProcess {
 async fn wait_for_socket(child: &mut Child, path: &Path, timeout: Duration) -> Result<()> {
     let start = Instant::now();
     loop {
-        if path.exists() && UnixStream::connect(path).await.is_ok() {
+        if RpcClient::connect(path, Duration::from_millis(200))
+            .await
+            .is_ok()
+        {
             return Ok(());
         }
         if let Some(status) = child.try_wait()? {

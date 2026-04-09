@@ -25,7 +25,7 @@ pub struct AgentCliArgs {
     #[arg(
         long,
         global = true,
-        help = "Unix socket path for the local powd daemon"
+        help = "Local endpoint path or name for the local powd daemon"
     )]
     socket: Option<PathBuf>,
     #[arg(

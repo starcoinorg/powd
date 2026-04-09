@@ -35,6 +35,9 @@ starcoin-logger = { git = "https://github.com/starcoinorg/starcoin", rev = "d1e8
 starcoin-types = { git = "https://github.com/starcoinorg/starcoin", rev = "d1e867f5b17454722444dc553341f8d9d7fe2167", package = "starcoin-vm1-types" }
 starcoin-crypto = { git = "https://github.com/starcoinorg/starcoin-crypto", rev = "bc3ca2138cf66d646f14a0f673ae5d853743f50a" }
 
+[target.'cfg(windows)'.dependencies]
+parity-tokio-ipc = "0.9"
+
 [dev-dependencies]
 jsonrpc-core = "18"
 jsonrpc-ws-server = "18"

@@ -25,7 +25,7 @@ const DEFAULT_STATUS_INTERVAL_SECS: u64 = 10;
     after_help = "This parser is only used by powd's internal hidden daemon mode."
 )]
 pub struct AgentArgs {
-    #[arg(long, help = "Unix socket path for the local API")]
+    #[arg(long, help = "Local endpoint path or name for the local API")]
     pub socket: Option<PathBuf>,
 }
 
@@ -171,9 +171,18 @@ pub(crate) fn default_status_interval() -> Duration {
 }
 
 pub fn prepare_socket_path(path: &Path) -> Result<()> {
-    ensure_socket_parent(path)?;
-    remove_stale_socket(path)?;
-    Ok(())
+    #[cfg(windows)]
+    {
+        let _ = path;
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    {
+        ensure_socket_parent(path)?;
+        remove_stale_socket(path)?;
+        Ok(())
+    }
 }
 
 #[cfg(unix)]
@@ -190,11 +199,19 @@ pub fn restrict_socket_permissions(_path: &Path) -> Result<()> {
 }
 
 pub fn default_socket_path() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .or_else(default_private_runtime_dir)
-        .unwrap_or_else(|| PathBuf::from("/tmp").join(private_tmp_dir_name()))
-        .join("powd.sock")
+    #[cfg(windows)]
+    {
+        return PathBuf::from(default_windows_pipe_path());
+    }
+
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .or_else(default_private_runtime_dir)
+            .unwrap_or_else(|| PathBuf::from("/tmp").join(private_tmp_dir_name()))
+            .join("powd.sock")
+    }
 }
 
 pub fn default_state_path() -> PathBuf {
@@ -247,10 +264,33 @@ fn ensure_socket_parent(path: &Path) -> Result<()> {
 }
 
 fn default_private_runtime_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".powd"))
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(|root| PathBuf::from(root).join("powd").join("runtime"))
+            .or_else(|| {
+                std::env::var_os("USERPROFILE")
+                    .map(|home| PathBuf::from(home).join(".powd").join("runtime"))
+            })
+    }
+
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".powd"))
+    }
 }
 
 fn default_state_root() -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(path) = std::env::var_os("LOCALAPPDATA") {
+            return PathBuf::from(path).join("powd");
+        }
+        if let Some(home) = std::env::var_os("USERPROFILE") {
+            return PathBuf::from(home).join(".powd").join("state");
+        }
+    }
+
     std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .or_else(|| {
@@ -268,5 +308,36 @@ fn private_tmp_dir_name() -> String {
     #[cfg(not(unix))]
     {
         "powd".to_string()
+    }
+}
+
+#[cfg(windows)]
+fn default_windows_pipe_path() -> String {
+    let domain = std::env::var("USERDOMAIN").unwrap_or_default();
+    let user = std::env::var("USERNAME").unwrap_or_else(|_| "user".to_string());
+    let label = format!("{domain}-{user}");
+    let suffix = sanitize_pipe_component(&label);
+    format!(r"\\.\pipe\powd-{suffix}")
+}
+
+#[cfg(windows)]
+fn sanitize_pipe_component(value: &str) -> String {
+    let mut normalized = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch.to_ascii_lowercase());
+        } else if !normalized.ends_with('-') {
+            normalized.push('-');
+        }
+    }
+    let trimmed = normalized
+        .trim_matches('-')
+        .chars()
+        .take(48)
+        .collect::<String>();
+    if trimmed.is_empty() {
+        "user".to_string()
+    } else {
+        trimmed
     }
 }

@@ -1,4 +1,5 @@
 use super::state::SharedState;
+use super::transport::{verify_local_peer, LocalConnection, LocalWriteHalf};
 use crate::agent::config::MintProfile;
 use crate::{
     AgentError, AgentErrorKind, BudgetMode, MinerEvent, MintNetwork, WalletAddress, WorkerName,
@@ -8,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{unix::OwnedWriteHalf, UnixStream};
 use tokio::sync::{broadcast, Mutex};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -80,15 +80,15 @@ struct ConfigureParams {
 }
 
 type RpcResult<T> = std::result::Result<T, RpcFailure>;
-type ConnectionWriter = Arc<Mutex<OwnedWriteHalf>>;
+type ConnectionWriter = Arc<Mutex<LocalWriteHalf>>;
 
 pub async fn serve_connection(
-    stream: UnixStream,
+    stream: LocalConnection,
     state: SharedState,
     shutdown: CancellationToken,
 ) -> Result<()> {
-    verify_peer_credentials(&stream)?;
-    let (read_half, write_half) = stream.into_split();
+    verify_local_peer(&stream)?;
+    let (read_half, write_half) = tokio::io::split(stream);
     let writer: ConnectionWriter = Arc::new(Mutex::new(write_half));
     let mut lines = BufReader::new(read_half).lines();
     let mut event_task: Option<JoinHandle<()>> = None;
@@ -335,59 +335,4 @@ async fn write_response<T: Serialize>(writer: &ConnectionWriter, payload: &T) ->
     encoded.push(b'\n');
     guard.write_all(&encoded).await.context("write response")?;
     guard.flush().await.context("flush response")
-}
-
-fn verify_peer_credentials(stream: &UnixStream) -> Result<()> {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        use std::os::fd::AsRawFd;
-
-        let fd = stream.as_raw_fd();
-        let mut ucred = libc::ucred {
-            pid: 0,
-            uid: 0,
-            gid: 0,
-        };
-        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-        let rc = unsafe {
-            libc::getsockopt(
-                fd,
-                libc::SOL_SOCKET,
-                libc::SO_PEERCRED,
-                &mut ucred as *mut _ as *mut libc::c_void,
-                &mut len,
-            )
-        };
-        if rc != 0 {
-            return Err(std::io::Error::last_os_error()).context("read peer credentials");
-        }
-        let expected_uid = unsafe { libc::geteuid() };
-        if ucred.uid != expected_uid {
-            anyhow::bail!(
-                "reject peer uid {} on local api socket; expected {expected_uid}",
-                ucred.uid
-            );
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        use std::os::fd::AsRawFd;
-
-        let fd = stream.as_raw_fd();
-        let mut peer_euid: libc::uid_t = 0;
-        let mut peer_egid: libc::gid_t = 0;
-        let rc = unsafe { libc::getpeereid(fd, &mut peer_euid, &mut peer_egid) };
-        if rc != 0 {
-            return Err(std::io::Error::last_os_error()).context("read peer credentials");
-        }
-        let expected_uid = unsafe { libc::geteuid() };
-        if peer_euid != expected_uid {
-            anyhow::bail!(
-                "reject peer uid {peer_euid} on local api socket; expected {expected_uid}"
-            );
-        }
-    }
-
-    Ok(())
 }

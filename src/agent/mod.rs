@@ -9,6 +9,7 @@ mod render;
 mod reward;
 mod rpc;
 mod state;
+mod transport;
 mod wallet;
 mod wallet_support;
 
@@ -21,9 +22,9 @@ use auto_mode::{SystemUsageSampler, AUTO_TICK_INTERVAL, SYSTEM_USAGE_SAMPLE_INTE
 use config::{prepare_socket_path, restrict_socket_permissions};
 use rpc::serve_connection;
 use state::SharedState;
-use tokio::net::UnixListener;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
+use transport::{bind_local, cleanup_local_endpoint};
 
 pub async fn run(args: AgentArgs) -> Result<()> {
     let config = args.into_config();
@@ -72,14 +73,14 @@ pub async fn run(args: AgentArgs) -> Result<()> {
             }
         }
     });
-    let listener = UnixListener::bind(&config.socket_path)
-        .with_context(|| format!("bind unix socket {}", config.socket_path.display()))?;
+    let mut listener = bind_local(&config.socket_path)
+        .with_context(|| format!("bind local endpoint {}", config.socket_path.display()))?;
     restrict_socket_permissions(&config.socket_path)?;
     loop {
         tokio::select! {
             _ = shutdown.cancelled() => break,
             accept = listener.accept() => {
-                let (stream, _) = accept?;
+                let stream = accept?;
                 let state = state.clone();
                 let shutdown = shutdown.clone();
                 tokio::spawn(async move {
@@ -91,7 +92,7 @@ pub async fn run(args: AgentArgs) -> Result<()> {
         }
     }
     state.stop_on_shutdown().await;
-    let _ = tokio::fs::remove_file(&config.socket_path).await;
+    cleanup_local_endpoint(&config.socket_path).await;
     Ok(())
 }
 

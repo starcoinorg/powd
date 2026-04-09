@@ -52,8 +52,7 @@ async function writeTarGzSingleFile({ archivePath, entryName, filePath }) {
   await fs.writeFile(archivePath, gzipBuffer);
 }
 
-async function createReleaseFixture(rootDir, version) {
-  const platform = resolvePlatform("linux", "x64");
+async function createReleaseFixture(rootDir, version, platform = resolvePlatform("linux", "x64")) {
   const spec = buildReleaseSpec({
     version,
     platform,
@@ -385,6 +384,36 @@ test("installPowd supports darwin arm64 assets when the host platform is Apple S
       assert.equal(result.status.registered, true);
       assert.equal(result.status.version, version);
       assert.equal(result.status.binaryPath?.endsWith("/powd"), true);
+      assert.deepEqual(configApi.snapshot().plugins.allow, ["powd"]);
+    });
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("installPowd supports windows x64 assets when the host platform is Windows", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
+  try {
+    const version = "1.2.3";
+    const platform = resolvePlatform("win32", "x64");
+    await createReleaseFixture(tempRoot, version, platform);
+
+    await withHttpServer(tempRoot, async (baseUrl) => {
+      const configApi = createConfigApi({});
+
+      const result = await installPowd({
+        version,
+        stateDir: path.join(tempRoot, "state"),
+        configApi,
+        platform,
+        releaseBaseUrl: baseUrl,
+      });
+
+      assert.equal(result.ok, true);
+      assert.equal(result.status.installed, true);
+      assert.equal(result.status.registered, true);
+      assert.equal(result.status.version, version);
+      assert.match(result.status.binaryPath ?? "", /powd\.exe$/);
       assert.deepEqual(configApi.snapshot().plugins.allow, ["powd"]);
     });
   } finally {

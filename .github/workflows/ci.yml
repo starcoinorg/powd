@@ -110,4 +110,68 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Run plugin smoke
-        run: scripts/plugin-smoke.sh
+        run: node scripts/plugin-smoke.mjs
+
+  rust-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Windows build dependencies
+        run: choco install protoc --no-progress -y
+
+      - name: Install Rust 1.88.0
+        shell: pwsh
+        run: |
+          $rustup = Join-Path $env:RUNNER_TEMP "rustup-init.exe"
+          Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile $rustup
+          & $rustup -y --profile minimal --default-toolchain 1.88.0
+          "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:USERPROFILE\.cargo\bin\rustup.exe" component add clippy rustfmt
+
+      - name: Run Rust tests
+        run: cargo test
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run plugin unit tests
+        run: |
+          cd plugins/openclaw-powd
+          npm test
+
+      - name: Bootstrap OpenClaw for plugin smoke
+        shell: pwsh
+        run: |
+          corepack enable
+          $match = Select-String -Path openclaw.nix -Pattern '^  version = "(.+)";$' | Select-Object -First 1
+          if (-not $match) {
+            throw "failed to resolve OpenClaw version from openclaw.nix"
+          }
+          $openclawVersion = $match.Matches[0].Groups[1].Value
+          $archivePath = Join-Path $env:RUNNER_TEMP "openclaw.tar.gz"
+          Invoke-WebRequest -Uri "https://github.com/openclaw/openclaw/archive/refs/tags/v$openclawVersion.tar.gz" -OutFile $archivePath
+          tar -xzf $archivePath -C $env:RUNNER_TEMP
+          $workspace = Join-Path $env:RUNNER_TEMP "openclaw-$openclawVersion"
+          Push-Location $workspace
+          pnpm install --frozen-lockfile
+          pnpm build
+          Pop-Location
+          $binDir = Join-Path $env:RUNNER_TEMP "bin"
+          New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+          @"
+          @echo off
+          node "$workspace\openclaw.mjs" %*
+          "@ | Set-Content -Path (Join-Path $binDir "openclaw.cmd") -Encoding Ascii
+          @"
+          @echo off
+          echo $workspace
+          "@ | Set-Content -Path (Join-Path $binDir "openclaw-bootstrap.cmd") -Encoding Ascii
+          $binDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Run plugin smoke
+        run: node scripts/plugin-smoke.mjs

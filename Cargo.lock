@@ -6851,6 +6851,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "parity-tokio-ipc"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9981e32fb75e004cc148f5fb70342f393830e0a4aa62e3cc93b50976218d42b6"
+dependencies = [
+ "futures",
+ "libc",
+ "log",
+ "rand 0.7.3",
+ "tokio",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "parity-ws"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7257,6 +7271,7 @@ dependencies = [
  "jsonrpc-ws-server",
  "libc",
  "once_cell",
+ "parity-tokio-ipc",
  "ratatui",
  "serde",
  "serde_json",

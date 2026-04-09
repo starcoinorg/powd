@@ -29,7 +29,15 @@ test("macOS Apple Silicon is supported", () => {
   });
 });
 
+test("windows x64 is supported", () => {
+  assert.deepEqual(resolvePlatform("win32", "x64"), {
+    key: "win32-x64",
+    assetSuffix: "windows-x86_64",
+    binaryName: "powd.exe",
+    supported: true,
+  });
+});
+
 test("other future platforms are recognized but not yet supported", () => {
   assert.equal(resolvePlatform("darwin", "x64")?.supported, false);
-  assert.equal(resolvePlatform("win32", "x64")?.supported, false);
 });

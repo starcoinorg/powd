@@ -25,7 +25,11 @@ On Linux today this uploads:
   - powd-v<version>-linux-x86_64.tar.gz.sha256
 
 The tag push also triggers GitHub Actions to build and upload additional cross-platform assets,
-including the macOS Apple Silicon powd archive.
+including:
+  - powd-v<version>-darwin-arm64.tar.gz
+  - powd-v<version>-darwin-arm64.tar.gz.sha256
+  - powd-v<version>-windows-x86_64.tar.gz
+  - powd-v<version>-windows-x86_64.tar.gz.sha256
 
 Default behavior:
   - read the version from Cargo.toml

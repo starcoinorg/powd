@@ -1,5 +1,4 @@
 export const MCP_SERVER_NAME = "powd";
-export const POWD_BINARY_NAME = "powd";
 export const POWD_RELEASE_REPO_BASE = "https://github.com/starcoinorg/powd/releases/download";
 export const POWD_RELEASE_API_BASE = "https://api.github.com/repos/starcoinorg/powd/releases";
 

@@ -193,10 +193,9 @@ pub(super) async fn wait_for_daemon_ready(
 ) -> Result<(), WalletAgentError> {
     let start = Instant::now();
     loop {
-        if socket_path.exists()
-            && AgentConnection::connect(socket_path, Duration::from_millis(200))
-                .await
-                .is_ok()
+        if AgentConnection::connect(socket_path, Duration::from_millis(200))
+            .await
+            .is_ok()
         {
             return Ok(());
         }

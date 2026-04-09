@@ -38,6 +38,24 @@ test("buildReleaseSpec matches the macOS Apple Silicon asset contract", () => {
   );
 });
 
+test("buildReleaseSpec matches the Windows x64 asset contract", () => {
+  const spec = buildReleaseSpec({
+    version: "1.0.0",
+    platform: {
+      assetSuffix: "windows-x86_64",
+      binaryName: "powd.exe",
+    },
+    baseUrlOverride: "https://example.com/releases/download",
+  });
+
+  assert.equal(spec.archiveName, "powd-v1.0.0-windows-x86_64.tar.gz");
+  assert.equal(spec.sha256Name, "powd-v1.0.0-windows-x86_64.tar.gz.sha256");
+  assert.equal(
+    spec.archiveUrl,
+    "https://example.com/releases/download/v1.0.0/powd-v1.0.0-windows-x86_64.tar.gz",
+  );
+});
+
 test("parseSha256Text accepts both raw and filename-suffixed digests", () => {
   const digest = "a".repeat(64);
   assert.equal(parseSha256Text(`${digest}\n`), digest);

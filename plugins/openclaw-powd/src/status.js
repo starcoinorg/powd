@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { POWD_BINARY_NAME } from "./constants.js";
 import { getPowdServer, isManagedPowdServer } from "./config.js";
 import { resolvePlatform } from "./platform.js";
 
@@ -26,19 +25,20 @@ async function readInstallRecord(metadataPath) {
   return null;
 }
 
-export function resolveManagedPaths(stateDir) {
+export function resolveManagedPaths(stateDir, platform = resolvePlatform()) {
   const rootDir = path.join(stateDir, "plugins", "powd");
   const binDir = path.join(rootDir, "bin");
+  const binaryName = platform?.binaryName ?? "powd";
   return {
     rootDir,
     binDir,
-    binaryPath: path.join(binDir, POWD_BINARY_NAME),
+    binaryPath: path.join(binDir, binaryName),
     metadataPath: path.join(rootDir, "install.json"),
   };
 }
 
 export async function collectSetupStatus({ expectedVersion, stateDir, config, platform = resolvePlatform() }) {
-  const paths = resolveManagedPaths(stateDir);
+  const paths = resolveManagedPaths(stateDir, platform);
   const binaryExists = await exists(paths.binaryPath);
   const installRecord = await readInstallRecord(paths.metadataPath);
   const version =

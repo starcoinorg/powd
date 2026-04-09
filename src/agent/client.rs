@@ -1,3 +1,4 @@
+use super::transport::{connect_local, LocalReadHalf, LocalWriteHalf};
 use crate::{
     AgentErrorKind, AgentMethods, EventsSinceResponse, MinerCapabilities, MinerEvent, MinerSnapshot,
 };
@@ -8,7 +9,6 @@ use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{unix::OwnedWriteHalf, UnixStream};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RpcFailure {
@@ -60,8 +60,8 @@ impl Display for AgentClientError {
 impl std::error::Error for AgentClientError {}
 
 pub struct AgentConnection {
-    reader: tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
-    writer: OwnedWriteHalf,
+    reader: tokio::io::Lines<BufReader<LocalReadHalf>>,
+    writer: LocalWriteHalf,
     next_id: u64,
 }
 
@@ -81,7 +81,7 @@ struct RpcEnvelope {
 
 impl AgentConnection {
     pub async fn connect(path: &Path, timeout: Duration) -> Result<Self, AgentClientError> {
-        let stream = match tokio::time::timeout(timeout, UnixStream::connect(path)).await {
+        let stream = match tokio::time::timeout(timeout, connect_local(path)).await {
             Ok(Ok(stream)) => stream,
             Ok(Err(source)) => {
                 return Err(AgentClientError::Connect {
@@ -96,7 +96,7 @@ impl AgentConnection {
                 })
             }
         };
-        let (read_half, write_half) = stream.into_split();
+        let (read_half, write_half) = tokio::io::split(stream);
         Ok(Self {
             reader: BufReader::new(read_half).lines(),
             writer: write_half,

@@ -21,7 +21,7 @@ export const PLATFORM_MATRIX = {
     key: "win32-x64",
     assetSuffix: "windows-x86_64",
     binaryName: "powd.exe",
-    supported: false,
+    supported: true,
   },
 };
 

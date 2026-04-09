@@ -44,7 +44,7 @@ async function installReleaseBinary({
     throw new Error("powd install is not available on this platform yet");
   }
 
-  const managedPaths = resolveManagedPaths(stateDir);
+  const managedPaths = resolveManagedPaths(stateDir, platform);
   await fs.mkdir(managedPaths.rootDir, { recursive: true });
   const tempRoot = await fs.mkdtemp(path.join(managedPaths.rootDir, "download-"));
 
