@@ -41,7 +41,7 @@ async function withResponse(url, { headers = {}, maxRedirects = 5 } = {}, handle
   };
 
   return await new Promise((resolve, reject) => {
-    const req = request(parsed, { headers: requestHeaders }, (response) => {
+    const req = request(parsed, { agent: false, family: 4, headers: requestHeaders }, (response) => {
       const statusCode = response.statusCode ?? 0;
       if (statusCode >= 300 && statusCode < 400 && response.headers.location) {
         response.resume();
@@ -64,6 +64,9 @@ async function withResponse(url, { headers = {}, maxRedirects = 5 } = {}, handle
       Promise.resolve(handler(response)).then(resolve, reject);
     });
 
+    req.setTimeout(30_000, () => {
+      req.destroy(new Error(`request timed out for ${url}`));
+    });
     req.once("error", reject);
     req.end();
   });
