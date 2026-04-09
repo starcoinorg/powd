@@ -155,6 +155,14 @@ if [ ! -f "$publish_path/openclaw.plugin.json" ]; then
   exit 1
 fi
 
+node -e '
+  const fs = require("fs");
+  const path = process.argv[1];
+  const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+  delete pkg.files;
+  fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+' "$publish_path/package.json"
+
 cmd=(clawhub package publish "$publish_path" --source-repo "$source_repo" --source-commit "$source_commit")
 if [ -n "$source_ref" ]; then
   cmd+=(--source-ref "$source_ref")
