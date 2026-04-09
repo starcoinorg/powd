@@ -108,7 +108,7 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
         setup["result"]["structuredContent"]["wallet_address"],
         "0x44444444444444444444444444444444"
     );
-    assert_eq!(setup["result"]["structuredContent"]["network"], "main");
+    assert_eq!(setup["result"]["structuredContent"]["network"], "halley");
 
     let show = client
         .request(
@@ -525,6 +525,7 @@ async fn spawn_mcp(
     let child = Command::new(ctl_bin)
         .env("POWD_STATE_PATH", state_path)
         .env("POWD_MAIN_REWARD_API", reward_api_base)
+        .env("POWD_HALLEY_REWARD_API", reward_api_base)
         .arg("--socket")
         .arg(socket_path)
         .arg("mcp")

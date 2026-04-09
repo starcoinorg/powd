@@ -17,14 +17,12 @@ usage() {
   cat <<'EOF'
 usage: scripts/release.sh [--repo owner/name] [--remote origin] [--tag vX.Y.Z] [--title "title"] [--notes "text"] [--notes-file path] [--generate-notes] [--output-dir path] [--dry-run]
 
-Build the local release assets, create or update the GitHub Release, and upload the assets
+Build the local powd release assets, create or update the GitHub Release, and upload the assets
 that can be produced from the current host.
 
 On Linux today this uploads:
   - powd-v<version>-linux-x86_64.tar.gz
   - powd-v<version>-linux-x86_64.tar.gz.sha256
-  - starcoinorg-openclaw-powd-<version>.tgz
-  - starcoinorg-openclaw-powd-<version>.tgz.sha256
 
 The tag push also triggers GitHub Actions to build and upload additional cross-platform assets,
 including the macOS Apple Silicon powd archive.
@@ -36,8 +34,6 @@ Default behavior:
   - generate:
       powd-v<version>-linux-x86_64.tar.gz
       powd-v<version>-linux-x86_64.tar.gz.sha256
-      starcoinorg-openclaw-powd-<version>.tgz
-      starcoinorg-openclaw-powd-<version>.tgz.sha256
   - create the GitHub Release if it does not already exist
   - generate GitHub-style release title and notes by default
   - mark versions with a prerelease suffix such as -rc.1 or -beta.1 as GitHub prereleases
@@ -113,7 +109,11 @@ require_cmd cargo
 require_cmd gh
 require_cmd git
 require_cmd tar
-require_cmd npm
+
+if ! git -C "$repo_root" diff --quiet || ! git -C "$repo_root" diff --cached --quiet; then
+  echo "working tree is dirty; commit or stash changes before running scripts/release.sh" >&2
+  exit 1
+fi
 
 cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo_root/Cargo.toml" | head -n 1)"
 
@@ -204,14 +204,10 @@ cargo build --release --bin powd --manifest-path "$repo_root/Cargo.toml"
 echo "==> packaging powd release archive"
 powd_archive_path="$("$repo_root/scripts/pack-release.sh" "$powd_binary" "$version" "$output_dir")"
 powd_sha_path="${powd_archive_path}.sha256"
-plugin_archive_path="$("$repo_root/scripts/pack-plugin-release.sh" "$output_dir")"
-plugin_sha_path="${plugin_archive_path}.sha256"
 
 assets=(
   "$powd_archive_path"
   "$powd_sha_path"
-  "$plugin_archive_path"
-  "$plugin_sha_path"
 )
 
 echo "==> assets ready"

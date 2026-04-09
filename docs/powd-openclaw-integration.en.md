@@ -126,7 +126,7 @@ The normal install path is:
 
 Defaults:
 
-- `network = main`
+- `network = halley`
 - `worker_name` is generated automatically on first wallet set
 - `requested_mode = auto` on first wallet set
 

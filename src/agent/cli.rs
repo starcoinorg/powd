@@ -72,7 +72,7 @@ enum AgentCliCommand {
 enum WalletCliCommand {
     #[command(
         about = "Persist the payout wallet and optional network. On first use this creates a stable worker name.",
-        after_help = "This is the only wallet write command.\n- First use: creates a stable worker name and defaults network to main.\n- Later use: updates the wallet address, preserves worker name, and keeps the current network unless --network is given.\n- If the daemon is already running, the effective login is updated immediately."
+        after_help = "This is the only wallet write command.\n- First use: creates a stable worker name and defaults network to halley.\n- Later use: updates the wallet address, preserves worker name, and keeps the current network unless --network is given.\n- If the daemon is already running, the effective login is updated immediately."
     )]
     Set {
         #[arg(
@@ -83,7 +83,7 @@ enum WalletCliCommand {
         #[arg(
             long,
             value_enum,
-            help = "Network profile to use. Defaults to main on first use; omitted later means keep the current network."
+            help = "Network profile to use. Defaults to halley on first use; omitted later means keep the current network."
         )]
         network: Option<CliNetwork>,
     },

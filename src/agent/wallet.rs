@@ -441,7 +441,7 @@ mod tests {
             .await
             .expect("wallet update should succeed");
         assert_eq!(first.worker_name, second.worker_name);
-        assert_eq!(second.network, MintNetwork::Main);
+        assert_eq!(second.network, MintNetwork::Halley);
 
         let _ = std::fs::remove_file(state_path);
     }

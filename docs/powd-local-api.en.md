@@ -50,7 +50,7 @@ Semantics:
 - on first use it creates a stable `worker_name`
 - later calls update `wallet_address`
 - `worker_name` stays stable
-- `--network` defaults to `main` on first use; later omission keeps the current network
+- `--network` defaults to `halley` on first use; later omission keeps the current network
 - if the daemon is already running, `wallet set` reconfigures it immediately
 - `wallet reward` is a separate external account query against pool-service
 - `wallet reward` uses the persisted `wallet_address + network` and does not depend on the daemon

@@ -50,7 +50,7 @@ OpenClaw 集成的整体理由见 [powd-openclaw-integration.zh.md](powd-opencla
 - 首次执行时会创建稳定的 `worker_name`
 - 后续执行只更新 `wallet_address`
 - `worker_name` 保持不变
-- 首次执行时 `--network` 默认是 `main`；后续未传时保持原 network
+- 首次执行时 `--network` 默认是 `halley`；后续未传时保持原 network
 - 如果 daemon 正在运行，`wallet set` 会立即对 daemon 重配
 - `wallet reward` 是独立的外部账户查询，数据来自 pool-service
 - `wallet reward` 使用持久化的 `wallet_address + network`，不依赖 daemon

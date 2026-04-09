@@ -243,11 +243,11 @@ mod tests {
     }
 
     #[test]
-    fn persisted_state_defaults_to_auto_mode_and_main_network() {
+    fn persisted_state_defaults_to_auto_mode_and_halley_network() {
         let encoded = br#"{"wallet_address":"0x1","worker_name":"agent1"}"#;
         let decoded: MintProfile = serde_json::from_slice(encoded).expect("decode state");
         assert_eq!(decoded.requested_mode, BudgetMode::Auto);
-        assert_eq!(decoded.network, MintNetwork::Main);
+        assert_eq!(decoded.network, MintNetwork::Halley);
         assert_eq!(decoded.wallet_address, WalletAddress::parse("0x1").unwrap());
         assert_eq!(decoded.worker_name, WorkerName::parse("agent1").unwrap());
     }

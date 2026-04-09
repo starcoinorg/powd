@@ -126,7 +126,7 @@ MCP bridge 只暴露公开业务工具：
 
 默认值：
 
-- `network = main`
+- `network = halley`
 - 首次 `wallet set` 自动生成 `worker_name`
 - 首次 `wallet set` 默认 `requested_mode = auto`
 

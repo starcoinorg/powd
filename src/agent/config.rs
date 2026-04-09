@@ -140,7 +140,7 @@ pub(crate) fn default_requested_mode() -> BudgetMode {
 }
 
 pub(crate) fn default_network() -> MintNetwork {
-    MintNetwork::Main
+    MintNetwork::Halley
 }
 
 pub(crate) fn default_max_threads() -> u16 {

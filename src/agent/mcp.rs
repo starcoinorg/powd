@@ -488,7 +488,7 @@ fn wallet_schema() -> Value {
                 json!({
                     "type": "string",
                     "enum": ["main", "halley"],
-                    "description": "Optional payout network profile. main = main network payouts. halley = halley test-network payouts. Omit to keep the current network, or default to main on first use.",
+                    "description": "Optional payout network profile. main = main network payouts. halley = halley test-network payouts. Omit to keep the current network, or default to halley on first use.",
                 }),
             )],
         ),

@@ -30,7 +30,7 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
     )
     .await?;
     assert_eq!(setup["wallet_address"], wallet);
-    assert_eq!(setup["network"], "main");
+    assert_eq!(setup["network"], "halley");
     assert!(setup["worker_name"]
         .as_str()
         .unwrap_or_default()
@@ -45,7 +45,7 @@ async fn agent_cli_wallet_set_show_doctor_and_mcp_config_work() -> Result<()> {
     .await?;
     assert_eq!(show["wallet_address"], wallet);
     assert_eq!(show["worker_name"], setup["worker_name"]);
-    assert_eq!(show["network"], "main");
+    assert_eq!(show["network"], "halley");
 
     let doctor = run_ctl_with_env_json(
         &socket_path,
@@ -185,15 +185,15 @@ async fn agent_cli_wallet_reward_reads_external_account_totals() -> Result<()> {
     )
     .await?;
     assert_eq!(reward["account"], "0x33333333333333333333333333333333");
-    assert_eq!(reward["network"], "main");
-    assert_eq!(reward["confirmed_total_raw"], "1500000000");
-    assert_eq!(reward["confirmed_total_display"], "1.5 STC");
-    assert_eq!(reward["estimated_pending_total_display"], "0.1 STC");
-    assert_eq!(reward["paid_total_display"], "0.2 STC");
-    assert_eq!(reward["confirmed_blocks_24h"], 2);
-    assert_eq!(reward["orphaned_blocks_24h"], 1);
+    assert_eq!(reward["network"], "halley");
+    assert_eq!(reward["confirmed_total_raw"], "2500000000");
+    assert_eq!(reward["confirmed_total_display"], "2.5 STC");
+    assert_eq!(reward["estimated_pending_total_display"], Value::Null);
+    assert_eq!(reward["paid_total_display"], "0.4 STC");
+    assert_eq!(reward["confirmed_blocks_24h"], 3);
+    assert_eq!(reward["orphaned_blocks_24h"], 0);
     assert_eq!(
-        reward_api.last_request_path().as_deref(),
+        halley_reward_api.last_request_path().as_deref(),
         Some("/v1/mining/dashboard/0x33333333333333333333333333333333?window_secs=300")
     );
 
@@ -262,7 +262,7 @@ async fn agent_cli_help_shows_wallet_miner_doctor_and_mcp_mode() -> Result<()> {
         String::from_utf8(wallet_set_help.stdout).context("decode wallet set help failed")?;
     assert!(wallet_set_stdout.contains("Payout wallet address"));
     assert!(wallet_set_stdout.contains("stable worker name"));
-    assert!(wallet_set_stdout.contains("Defaults to main on first use"));
+    assert!(wallet_set_stdout.contains("Defaults to halley on first use"));
 
     let wallet_reward_help = Command::new(&ctl_bin)
         .args(["wallet", "reward", "--help"])
