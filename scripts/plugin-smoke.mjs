@@ -101,16 +101,62 @@ async function ensureCommand(command, args = ["--version"]) {
 }
 
 function extractJson(text) {
-  const match = text.match(/^[\s]*\{/m);
-  if (!match || match.index == null) {
-    throw new Error(`expected JSON in command output:\n${text}`);
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (start === -1) {
+      if (char === "{") {
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char !== "}") {
+      continue;
+    }
+
+    depth -= 1;
+    if (depth !== 0) {
+      continue;
+    }
+
+    return JSON.parse(text.slice(start, index + 1));
   }
-  return JSON.parse(text.slice(match.index));
+
+  throw new Error(`expected JSON in command output:\n${text}`);
 }
 
 async function runJsonCommand(command, args, options = {}) {
   const result = await runCommand(command, args, options);
-  return extractJson(result.output);
+  const text = result.stdout.trim() ? result.stdout : result.output;
+  return extractJson(text);
 }
 
 async function runOpenClaw(args, options = {}) {
