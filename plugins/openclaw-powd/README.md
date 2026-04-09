@@ -38,7 +38,7 @@ npm pack
 Install it into OpenClaw with:
 
 ```bash
-openclaw plugins install ./openclaw-powd-<version>.tgz
+openclaw plugins install ./starcoinorg-openclaw-powd-<version>.tgz
 openclaw gateway restart
 ```
 
@@ -57,3 +57,24 @@ install powd 1.0.0-rc.1
 ## Local Testing
 
 Local tests inject fixture release URLs directly into the installer. The published plugin always resolves releases from the official `starcoinorg/powd` GitHub Releases endpoints.
+
+## Advanced release override
+
+For local smoke tests or mirrored releases, set plugin config under `plugins.entries.powd.config`:
+
+- `releaseBaseUrl`
+- `releaseApiBaseUrl`
+
+Example:
+
+```bash
+openclaw config set plugins.entries.powd.config.releaseBaseUrl '"http://127.0.0.1:<port>/releases/download"'
+openclaw config set plugins.entries.powd.config.releaseApiBaseUrl '"http://127.0.0.1:<port>/api/releases"'
+```
+
+The plugin appends `/v<version>/<asset>` to `releaseBaseUrl`, and it requests `/latest` from `releaseApiBaseUrl`.
+
+## Supported platforms
+
+- Linux x86_64
+- macOS Apple Silicon

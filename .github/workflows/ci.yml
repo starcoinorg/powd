@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - "feat/**"
+      - "fix/**"
+      - "refactor/**"
+      - "debug/**"
+  pull_request:
+
+jobs:
+  rust-linux:
+    runs-on: ubuntu-latest
+    env:
+      CXXFLAGS: -include cstdint
+      OPENSSL_NO_VENDOR: "1"
+      RUSTFLAGS: -C link-arg=-fuse-ld=mold
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libssl-dev mold pkg-config protobuf-compiler
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Rust 1.88.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.88.0
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" component add clippy rustfmt
+
+      - name: Run Rust tests
+        run: cargo test
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run plugin unit tests
+        run: |
+          cd plugins/openclaw-powd
+          npm test
+
+  rust-macos-arm64:
+    runs-on: macos-14
+    env:
+      CXXFLAGS: -include cstdint
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      OPENSSL_NO_VENDOR: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install macOS build dependencies
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            brew install jq
+          fi
+          brew install llvm protobuf
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+          echo "PROTOC=$(brew --prefix protobuf)/bin/protoc" >> "$GITHUB_ENV"
+
+      - name: Install Rust 1.88.0
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.88.0
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" component add clippy rustfmt
+
+      - name: Run Rust tests
+        run: cargo test
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run plugin unit tests
+        run: |
+          cd plugins/openclaw-powd
+          npm test
+
+      - name: Bootstrap OpenClaw for plugin smoke
+        run: |
+          corepack enable
+          OPENCLAW_VERSION="$(sed -n 's/^  version = "\(.*\)";$/\1/p' openclaw.nix | head -n 1)"
+          test -n "$OPENCLAW_VERSION"
+          curl -L "https://github.com/openclaw/openclaw/archive/refs/tags/v${OPENCLAW_VERSION}.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          WORKSPACE="$RUNNER_TEMP/openclaw-${OPENCLAW_VERSION}"
+          (
+            cd "$WORKSPACE"
+            pnpm install --frozen-lockfile
+            pnpm build
+          )
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat >"$RUNNER_TEMP/bin/openclaw" <<EOF
+          #!/usr/bin/env bash
+          exec node "$WORKSPACE/openclaw.mjs" "\$@"
+          EOF
+          cat >"$RUNNER_TEMP/bin/openclaw-bootstrap" <<EOF
+          #!/usr/bin/env bash
+          printf '%s\n' "$WORKSPACE"
+          EOF
+          chmod +x "$RUNNER_TEMP/bin/openclaw" "$RUNNER_TEMP/bin/openclaw-bootstrap"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Run plugin smoke
+        run: scripts/plugin-smoke.sh

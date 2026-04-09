@@ -20,8 +20,16 @@ test("linux x64 is supported in v1", () => {
   });
 });
 
-test("other platforms are recognized but not yet supported", () => {
-  assert.equal(resolvePlatform("darwin", "arm64")?.supported, false);
-  assert.equal(resolvePlatform("win32", "x64")?.supported, false);
+test("macOS Apple Silicon is supported", () => {
+  assert.deepEqual(resolvePlatform("darwin", "arm64"), {
+    key: "darwin-arm64",
+    assetSuffix: "darwin-arm64",
+    binaryName: "powd",
+    supported: true,
+  });
 });
 
+test("other future platforms are recognized but not yet supported", () => {
+  assert.equal(resolvePlatform("darwin", "x64")?.supported, false);
+  assert.equal(resolvePlatform("win32", "x64")?.supported, false);
+});

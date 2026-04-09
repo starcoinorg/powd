@@ -11,6 +11,15 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "releaseBaseUrl": {
+        "type": "string",
+        "description": "Advanced override for the powd release download base URL. Intended for testing or mirrored releases."
+      },
+      "releaseApiBaseUrl": {
+        "type": "string",
+        "description": "Advanced override for the latest stable powd release API base URL. Intended for testing or mirrored releases."
+      }
+    }
   }
 }

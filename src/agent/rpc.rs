@@ -370,5 +370,27 @@ fn verify_peer_credentials(stream: &UnixStream) -> Result<()> {
             );
         }
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+
+        let fd = stream.as_raw_fd();
+        let mut peer_euid: libc::uid_t = 0;
+        let mut peer_egid: libc::gid_t = 0;
+        let rc = unsafe { libc::getpeereid(fd, &mut peer_euid, &mut peer_egid) };
+        if rc != 0 {
+            return Err(std::io::Error::last_os_error()).context("read peer credentials");
+        }
+        let expected_uid = unsafe { libc::geteuid() };
+        if peer_euid != expected_uid {
+            anyhow::bail!(
+                "reject peer uid {} on local api socket; expected {}",
+                peer_euid,
+                expected_uid
+            );
+        }
+    }
+
     Ok(())
 }

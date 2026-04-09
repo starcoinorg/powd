@@ -18,6 +18,11 @@ function normalizeRequestedVersion(version) {
   return typeof version === "string" && version.trim() ? version.trim() : undefined;
 }
 
+function resolvePluginConfig(config) {
+  const pluginConfig = config?.plugins?.entries?.powd?.config;
+  return pluginConfig && typeof pluginConfig === "object" && !Array.isArray(pluginConfig) ? pluginConfig : {};
+}
+
 function extractToolVersion(params) {
   return normalizeRequestedVersion(params?.version);
 }
@@ -30,12 +35,46 @@ function extractEventVersion(event) {
   );
 }
 
-async function runInstall(api, requestedVersion) {
+function resolveReleaseOverrides(pluginConfig) {
+  const config =
+    pluginConfig && typeof pluginConfig === "object" && !Array.isArray(pluginConfig) ? pluginConfig : {};
+  const releaseBaseUrl =
+    typeof config.releaseBaseUrl === "string" && config.releaseBaseUrl.trim() ? config.releaseBaseUrl.trim() : undefined;
+  const releaseApiBaseUrl =
+    typeof config.releaseApiBaseUrl === "string" && config.releaseApiBaseUrl.trim()
+      ? config.releaseApiBaseUrl.trim()
+      : undefined;
+  return {
+    releaseBaseUrl,
+    releaseApiBaseUrl,
+  };
+}
+
+async function resolveInstallReleaseOverrides(api, configOverride) {
+  if (configOverride) {
+    const overrides = resolveReleaseOverrides(resolvePluginConfig(configOverride));
+    if (overrides.releaseBaseUrl || overrides.releaseApiBaseUrl) {
+      return overrides;
+    }
+  }
+
+  const pluginOverrides = resolveReleaseOverrides(api.pluginConfig);
+  if (pluginOverrides.releaseBaseUrl || pluginOverrides.releaseApiBaseUrl) {
+    return pluginOverrides;
+  }
+
+  const config = await loadConfig(api.runtime.config);
+  return resolveReleaseOverrides(resolvePluginConfig(config));
+}
+
+async function runInstall(api, requestedVersion, configOverride) {
+  const releaseOverrides = await resolveInstallReleaseOverrides(api, configOverride);
   return await installPowd({
     version: normalizeRequestedVersion(requestedVersion),
     stateDir: api.runtime.state.resolveStateDir(),
     configApi: api.runtime.config,
     logger: api.logger,
+    ...releaseOverrides,
   });
 }
 
@@ -150,11 +189,11 @@ export default definePluginEntry({
     });
 
     api.registerCli(
-      ({ program }) => {
+      ({ program, config }) => {
         registerPowdCli({
           program,
           api,
-          runInstall: async (version) => buildInstallToolResult(await runInstall(api, version)),
+          runInstall: async (version) => buildInstallToolResult(await runInstall(api, version, config)),
           runStatus: async (version) => buildStatusToolResult(await runStatus(api, version)),
         });
       },

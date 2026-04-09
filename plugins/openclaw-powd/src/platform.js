@@ -15,7 +15,7 @@ export const PLATFORM_MATRIX = {
     key: "darwin-arm64",
     assetSuffix: "darwin-arm64",
     binaryName: "powd",
-    supported: false,
+    supported: true,
   },
   "win32:x64": {
     key: "win32-x64",
@@ -28,4 +28,3 @@ export const PLATFORM_MATRIX = {
 export function resolvePlatform(platform = process.platform, arch = process.arch) {
   return PLATFORM_MATRIX[`${platform}:${arch}`] ?? null;
 }
-

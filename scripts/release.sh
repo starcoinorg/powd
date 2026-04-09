@@ -17,10 +17,17 @@ usage() {
   cat <<'EOF'
 usage: scripts/release.sh [--repo owner/name] [--remote origin] [--tag vX.Y.Z] [--title "title"] [--notes "text"] [--notes-file path] [--generate-notes] [--output-dir path] [--dry-run]
 
-Build the powd binary release assets and upload them to a GitHub Release.
+Build the local release assets, create or update the GitHub Release, and upload the assets
+that can be produced from the current host.
 
-This script publishes only the powd binary assets.
-OpenClaw plugin publishing is handled separately by scripts/clawhub-release.sh.
+On Linux today this uploads:
+  - powd-v<version>-linux-x86_64.tar.gz
+  - powd-v<version>-linux-x86_64.tar.gz.sha256
+  - starcoinorg-openclaw-powd-<version>.tgz
+  - starcoinorg-openclaw-powd-<version>.tgz.sha256
+
+The tag push also triggers GitHub Actions to build and upload additional cross-platform assets,
+including the macOS Apple Silicon powd archive.
 
 Default behavior:
   - read the version from Cargo.toml
@@ -29,6 +36,8 @@ Default behavior:
   - generate:
       powd-v<version>-linux-x86_64.tar.gz
       powd-v<version>-linux-x86_64.tar.gz.sha256
+      starcoinorg-openclaw-powd-<version>.tgz
+      starcoinorg-openclaw-powd-<version>.tgz.sha256
   - create the GitHub Release if it does not already exist
   - generate GitHub-style release title and notes by default
   - mark versions with a prerelease suffix such as -rc.1 or -beta.1 as GitHub prereleases
@@ -103,8 +112,8 @@ require_cmd() {
 require_cmd cargo
 require_cmd gh
 require_cmd git
-require_cmd sha256sum
 require_cmd tar
+require_cmd npm
 
 cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo_root/Cargo.toml" | head -n 1)"
 
@@ -179,7 +188,7 @@ if [ "$dry_run" -eq 0 ]; then
   remote_tag_commit="$(git -C "$repo_root" ls-remote --tags "$remote" "refs/tags/$tag" | awk '{print $1}' | head -n 1)"
 fi
 
-if [ -n "$local_tag_commit" ] && [ "$local_tag_commit" != "$head_commit" ]; then
+if [ -n "$local_tag_commit" ] && [ "$local_tag_commit" != "$head_commit" ] && [ "$dry_run" -eq 0 ]; then
   echo "local tag $tag exists but does not point to HEAD ($local_tag_commit != $head_commit)" >&2
   exit 1
 fi
@@ -195,10 +204,14 @@ cargo build --release --bin powd --manifest-path "$repo_root/Cargo.toml"
 echo "==> packaging powd release archive"
 powd_archive_path="$("$repo_root/scripts/pack-release.sh" "$powd_binary" "$version" "$output_dir")"
 powd_sha_path="${powd_archive_path}.sha256"
+plugin_archive_path="$("$repo_root/scripts/pack-plugin-release.sh" "$output_dir")"
+plugin_sha_path="${plugin_archive_path}.sha256"
 
 assets=(
   "$powd_archive_path"
   "$powd_sha_path"
+  "$plugin_archive_path"
+  "$plugin_sha_path"
 )
 
 echo "==> assets ready"
@@ -206,7 +219,9 @@ for asset in "${assets[@]}"; do
   echo "  - $asset"
 done
 
-if [ -z "$local_tag_commit" ]; then
+if [ "$dry_run" -eq 1 ] && [ -n "$local_tag_commit" ] && [ "$local_tag_commit" != "$head_commit" ]; then
+  echo "==> dry-run: local tag $tag exists on a different commit; skipping local tag mutation checks"
+elif [ -z "$local_tag_commit" ]; then
   echo "==> creating local tag $tag on $head_commit"
   if [ "$dry_run" -eq 0 ]; then
     git -C "$repo_root" tag -a "$tag" -m "$tag"

@@ -31,8 +31,14 @@ async function sha256File(filePath) {
   }
   return hash.digest("hex");
 }
-async function installReleaseBinary({ version, stateDir, logger, releaseBaseUrl, fetchImpl }) {
-  const platform = resolvePlatform();
+async function installReleaseBinary({
+  version,
+  stateDir,
+  logger,
+  platform = resolvePlatform(),
+  releaseBaseUrl,
+  fetchImpl,
+}) {
   if (!platform?.supported) {
     throw new Error("powd install is not available on this platform yet");
   }
@@ -121,6 +127,7 @@ export async function installPowd({
   stateDir,
   configApi,
   logger,
+  platform = resolvePlatform(),
   releaseBaseUrl,
   releaseApiBaseUrl,
   fetchImpl,
@@ -129,6 +136,7 @@ export async function installPowd({
   const initialStatus = await collectSetupStatus({
     stateDir,
     config: currentConfig,
+    platform,
   });
 
   if (!initialStatus.platformSupported) {
@@ -156,6 +164,7 @@ export async function installPowd({
       version: targetVersion,
       stateDir,
       logger,
+      platform,
       releaseBaseUrl,
       fetchImpl,
     });
@@ -167,6 +176,7 @@ export async function installPowd({
     expectedVersion: targetVersion,
     stateDir,
     config: configBeforeWrite,
+    platform,
   });
   const overwroteForeignRegistration = statusBeforeWrite.foreignRegistration;
 
@@ -189,6 +199,7 @@ export async function installPowd({
     expectedVersion: targetVersion,
     stateDir,
     config: finalConfig,
+    platform,
   });
 
   return {

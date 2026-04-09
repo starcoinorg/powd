@@ -41,8 +41,23 @@ if [ -z "$version" ]; then
   echo "failed to resolve powd version from Cargo.toml" >&2
   exit 1
 fi
+case "$(uname -s):$(uname -m)" in
+  Linux:x86_64)
+    asset_suffix="linux-x86_64"
+    ;;
+  Darwin:arm64|Darwin:aarch64)
+    asset_suffix="darwin-arm64"
+    ;;
+  *)
+    echo "powd plugin smoke requires a supported host platform" >&2
+    exit 1
+    ;;
+esac
 release_root="$POWD_OPENCLAW_ROOT/release-fixture/releases/download/v$version"
-"$repo_root/scripts/pack-release.sh" "$powd_bin" "$version" "$release_root" >/dev/null
+"$repo_root/scripts/pack-release.sh" "$powd_bin" "$version" "$asset_suffix" "$release_root" >/dev/null
+latest_api_path="$POWD_OPENCLAW_ROOT/release-fixture/api/releases/latest"
+mkdir -p "$(dirname "$latest_api_path")"
+printf '{"tag_name":"v%s"}\n' "$version" >"$latest_api_path"
 
 server_port=39123
 node "$repo_root/scripts/httpd.mjs" "$POWD_OPENCLAW_ROOT/release-fixture" "$server_port" >/tmp/powd-plugin-smoke-http.log 2>&1 &
@@ -60,7 +75,8 @@ printf '%s\n' "$inspect_json" | jq -e '.plugin.id == "powd"' >/dev/null
 status_before="$(capture_json openclaw powd status --json)"
 printf '%s\n' "$status_before" | jq -e '.installed == false and .registered == false' >/dev/null
 
-export POWD_PLUGIN_RELEASE_BASE_URL="http://127.0.0.1:${server_port}/releases/download"
+openclaw config set plugins.entries.powd.config.releaseBaseUrl "\"http://127.0.0.1:${server_port}/releases/download\"" >/dev/null
+openclaw config set plugins.entries.powd.config.releaseApiBaseUrl "\"http://127.0.0.1:${server_port}/api/releases\"" >/dev/null
 install_json="$(capture_json openclaw powd install --json)"
 printf '%s\n' "$install_json" | jq -e --arg version "$version" '
   .installed == true and

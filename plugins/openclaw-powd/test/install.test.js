@@ -232,3 +232,54 @@ test("installPowd accepts an explicit pinned version", async () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("installPowd supports darwin arm64 assets when the host platform is Apple Silicon", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
+  try {
+    const version = "1.2.3";
+    const platform = resolvePlatform("darwin", "arm64");
+    const spec = buildReleaseSpec({
+      version,
+      platform,
+      baseUrlOverride: "http://127.0.0.1:0/releases/download",
+    });
+    const releaseDir = path.join(tempRoot, "releases", "download", `v${version}`);
+    const stagingDir = path.join(tempRoot, "staging");
+    await fs.mkdir(releaseDir, { recursive: true });
+    await fs.mkdir(stagingDir, { recursive: true });
+
+    const powdPath = path.join(stagingDir, platform.binaryName);
+    await fs.writeFile(powdPath, "#!/usr/bin/env sh\necho powd-macos\n", "utf8");
+    await fs.chmod(powdPath, 0o755);
+
+    const archivePath = path.join(releaseDir, spec.archiveName);
+    await writeTarGzSingleFile({
+      archivePath,
+      entryName: platform.binaryName,
+      filePath: powdPath,
+    });
+    const archiveBytes = await fs.readFile(archivePath);
+    await fs.writeFile(path.join(releaseDir, spec.sha256Name), `${sha256(archiveBytes)}  ${spec.archiveName}\n`, "utf8");
+
+    await withHttpServer(tempRoot, async (baseUrl) => {
+      const configApi = createConfigApi({});
+
+      const result = await installPowd({
+        version,
+        stateDir: path.join(tempRoot, "state"),
+        configApi,
+        platform,
+        releaseBaseUrl: baseUrl,
+      });
+
+      assert.equal(result.ok, true);
+      assert.equal(result.status.installed, true);
+      assert.equal(result.status.registered, true);
+      assert.equal(result.status.version, version);
+      assert.equal(result.status.binaryPath?.endsWith("/powd"), true);
+      assert.deepEqual(configApi.snapshot().plugins.allow, ["powd"]);
+    });
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});

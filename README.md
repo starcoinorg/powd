@@ -66,7 +66,7 @@ If you need a specific release instead, ask OpenClaw to install that version exp
   Restart the OpenClaw gateway after installing the plugin.
 
 - `install powd fails`
-  `powd` plugin v1 currently supports Linux x86_64 and needs access to GitHub Releases.
+  `powd` plugin currently supports Linux x86_64 and macOS Apple Silicon, and it needs access to GitHub Releases.
 
 - `OpenClaw still points to an older powd path`
   Ask OpenClaw to `install powd` again. The installer repairs the saved MCP registration.
