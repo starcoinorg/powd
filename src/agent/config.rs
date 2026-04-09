@@ -249,6 +249,7 @@ fn ensure_socket_parent(path: &Path) -> Result<()> {
     let Some(parent) = path.parent() else {
         return Ok(());
     };
+    #[cfg(unix)]
     let existed = parent.exists();
     std::fs::create_dir_all(parent)
         .with_context(|| format!("create socket parent {}", parent.display()))?;

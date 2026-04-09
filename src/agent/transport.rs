@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use std::io;
 use std::path::Path;
 use tokio::io::{ReadHalf, WriteHalf};
+#[cfg(windows)]
+use tokio::io::{AsyncRead, AsyncWrite};
 
 #[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
@@ -9,12 +11,12 @@ use tokio::net::{UnixListener, UnixStream};
 #[cfg(windows)]
 use futures::StreamExt;
 #[cfg(windows)]
-use parity_tokio_ipc::{Connection as PipeConnection, Endpoint as PipeEndpoint};
+use parity_tokio_ipc::Endpoint as PipeEndpoint;
 
 #[cfg(unix)]
 pub type LocalConnection = UnixStream;
 #[cfg(windows)]
-pub type LocalConnection = PipeConnection;
+pub type LocalConnection = Box<dyn AsyncRead + AsyncWrite + Send + Unpin>;
 
 pub type LocalReadHalf = ReadHalf<LocalConnection>;
 pub type LocalWriteHalf = WriteHalf<LocalConnection>;
@@ -60,6 +62,7 @@ pub fn bind_local(endpoint: &Path) -> Result<LocalListener> {
         let incoming = PipeEndpoint::new(normalize_pipe_path(endpoint))
             .incoming()
             .context("bind local named pipe")?
+            .map(|result| result.map(|stream| Box::new(stream) as LocalConnection))
             .boxed();
         Ok(LocalListener { incoming })
     }
@@ -73,7 +76,9 @@ pub async fn connect_local(endpoint: &Path) -> io::Result<LocalConnection> {
 
     #[cfg(windows)]
     {
-        PipeEndpoint::connect(normalize_pipe_path(endpoint)).await
+        PipeEndpoint::connect(normalize_pipe_path(endpoint))
+            .await
+            .map(|stream| Box::new(stream) as LocalConnection)
     }
 }
 
