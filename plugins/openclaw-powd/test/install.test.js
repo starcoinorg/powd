@@ -37,6 +37,10 @@ async function createReleaseFixture(rootDir, version) {
   await execFile("tar", ["-C", stagingDir, "-czf", archivePath, platform.binaryName]);
   const archiveBytes = await fs.readFile(archivePath);
   await fs.writeFile(path.join(releaseDir, spec.sha256Name), `${sha256(archiveBytes)}  ${spec.archiveName}\n`, "utf8");
+
+  const latestApiPath = path.join(rootDir, "api", "releases", "latest");
+  await fs.mkdir(path.dirname(latestApiPath), { recursive: true });
+  await fs.writeFile(latestApiPath, `${JSON.stringify({ tag_name: `v${version}` })}\n`, "utf8");
 }
 
 async function withHttpServer(rootDir, fn) {
@@ -79,18 +83,18 @@ function createConfigApi(initialConfig = {}) {
   };
 }
 
-test("installPowd downloads, installs, and registers powd", async () => {
+test("installPowd downloads the latest stable release when no version is pinned", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
   try {
-    const version = "0.1.0";
+    const version = "1.2.3";
     await createReleaseFixture(tempRoot, version);
 
     await withHttpServer(tempRoot, async (baseUrl) => {
       process.env.POWD_PLUGIN_RELEASE_BASE_URL = baseUrl;
+      process.env.POWD_PLUGIN_RELEASE_API_BASE_URL = baseUrl.replace(/\/releases\/download$/, "/api/releases");
       const configApi = createConfigApi({});
 
       const result = await installPowd({
-        version,
         stateDir: path.join(tempRoot, "state"),
         configApi,
       });
@@ -113,18 +117,31 @@ test("installPowd downloads, installs, and registers powd", async () => {
     });
   } finally {
     delete process.env.POWD_PLUGIN_RELEASE_BASE_URL;
+    delete process.env.POWD_PLUGIN_RELEASE_API_BASE_URL;
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 });
 
-test("installPowd replaces a foreign powd registration", async () => {
+test("installPowd replaces a foreign powd registration without forcing a network update", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
   try {
-    const version = "0.1.0";
+    const version = "1.2.3";
     await createReleaseFixture(tempRoot, version);
 
     await withHttpServer(tempRoot, async (baseUrl) => {
       process.env.POWD_PLUGIN_RELEASE_BASE_URL = baseUrl;
+      const stateDir = path.join(tempRoot, "state");
+      const managedBinaryPath = path.join(stateDir, "plugins", "powd", "bin", "powd");
+      const metadataPath = path.join(stateDir, "plugins", "powd", "install.json");
+      await fs.mkdir(path.dirname(managedBinaryPath), { recursive: true });
+      await fs.writeFile(managedBinaryPath, "#!/usr/bin/env sh\necho powd\n", "utf8");
+      await fs.chmod(managedBinaryPath, 0o755);
+      await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+      await fs.writeFile(
+        metadataPath,
+        `${JSON.stringify({ version, binaryPath: managedBinaryPath, installedAt: new Date().toISOString() }, null, 2)}\n`,
+        "utf8",
+      );
       const configApi = createConfigApi({
         mcp: {
           servers: {
@@ -138,8 +155,7 @@ test("installPowd replaces a foreign powd registration", async () => {
       });
 
       const result = await installPowd({
-        version,
-        stateDir: path.join(tempRoot, "state"),
+        stateDir,
         configApi,
       });
 
@@ -148,6 +164,33 @@ test("installPowd replaces a foreign powd registration", async () => {
       assert.match(result.message, /replaced/i);
       assert.notEqual(configApi.snapshot().mcp.servers.powd.command, "/opt/custom/powd");
       assert.deepEqual(configApi.snapshot().plugins.allow, ["powd"]);
+    });
+  } finally {
+    delete process.env.POWD_PLUGIN_RELEASE_BASE_URL;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("installPowd accepts an explicit pinned version", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
+  try {
+    const version = "1.0.0-rc.1";
+    await createReleaseFixture(tempRoot, version);
+
+    await withHttpServer(tempRoot, async (baseUrl) => {
+      process.env.POWD_PLUGIN_RELEASE_BASE_URL = baseUrl;
+      const configApi = createConfigApi({});
+
+      const result = await installPowd({
+        version: `v${version}`,
+        stateDir: path.join(tempRoot, "state"),
+        configApi,
+      });
+
+      assert.equal(result.ok, true);
+      assert.equal(result.status.installed, true);
+      assert.equal(result.status.version, version);
+      assert.equal(result.status.registered, true);
     });
   } finally {
     delete process.env.POWD_PLUGIN_RELEASE_BASE_URL;

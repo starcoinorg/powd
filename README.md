@@ -35,11 +35,13 @@ install powd
 
 OpenClaw will:
 
-- download the matching `powd` binary from GitHub Releases
+- download the latest stable `powd` binary from GitHub Releases
 - install it locally
 - register it as an MCP server
 
 After that, you can do the rest through chat.
+
+If you need a specific release instead, ask OpenClaw to install that version explicitly, for example `install powd 1.0.0-rc.1`.
 
 ## What To Say In OpenClaw
 

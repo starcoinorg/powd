@@ -5,7 +5,8 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
-import { buildReleaseSpec, parseSha256Text } from "./releases.js";
+import { normalizeVersion } from "./constants.js";
+import { buildReleaseSpec, parseSha256Text, resolveLatestStableVersion } from "./releases.js";
 import { resolvePlatform } from "./platform.js";
 import { collectSetupStatus, resolveManagedPaths, toPublicSetupStatus } from "./status.js";
 import { upsertPowdPluginAllow, upsertPowdServer } from "./config.js";
@@ -185,7 +186,6 @@ function buildInstallMessage(params) {
 export async function installPowd({ version, stateDir, configApi, logger }) {
   const currentConfig = await Promise.resolve(configApi.loadConfig());
   const initialStatus = await collectSetupStatus({
-    expectedVersion: version,
     stateDir,
     config: currentConfig,
   });
@@ -199,14 +199,22 @@ export async function installPowd({ version, stateDir, configApi, logger }) {
   }
 
   let downloaded = false;
-  if (!initialStatus.installed || initialStatus.version !== version) {
-    await installReleaseBinary({ version, stateDir, logger });
+  let targetVersion = null;
+
+  if (typeof version === "string" && version.trim()) {
+    targetVersion = normalizeVersion(version);
+  } else if (!initialStatus.installed || !initialStatus.version) {
+    targetVersion = await resolveLatestStableVersion();
+  }
+
+  if (targetVersion && (!initialStatus.installed || initialStatus.version !== targetVersion)) {
+    await installReleaseBinary({ version: targetVersion, stateDir, logger });
     downloaded = true;
   }
 
   const configBeforeWrite = downloaded ? await Promise.resolve(configApi.loadConfig()) : currentConfig;
   const statusBeforeWrite = await collectSetupStatus({
-    expectedVersion: version,
+    expectedVersion: targetVersion,
     stateDir,
     config: configBeforeWrite,
   });
@@ -228,7 +236,7 @@ export async function installPowd({ version, stateDir, configApi, logger }) {
   }
 
   const finalStatus = await collectSetupStatus({
-    expectedVersion: version,
+    expectedVersion: targetVersion,
     stateDir,
     config: finalConfig,
   });
@@ -242,7 +250,7 @@ export async function installPowd({ version, stateDir, configApi, logger }) {
       downloaded,
       overwroteForeignRegistration,
       status: finalStatus,
-      version,
+      version: targetVersion ?? finalStatus.version,
     }),
   };
 }

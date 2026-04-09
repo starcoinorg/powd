@@ -1,6 +1,9 @@
 export function buildApprovalRequest(status, version) {
+  const versionPhrase = version
+    ? `Download powd ${version} from GitHub Releases`
+    : "Download the latest stable powd release from GitHub Releases";
   const lines = [
-    `Download powd ${version} from GitHub Releases, install it locally, and register it with OpenClaw.`,
+    `${versionPhrase}, install it locally, and register it with OpenClaw.`,
     "This will not set a wallet or start mining.",
   ];
   if (status.foreignRegistration) {
@@ -53,4 +56,3 @@ export function buildInstallCommandReply(result) {
     text: result.message,
   };
 }
-

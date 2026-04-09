@@ -6,3 +6,4 @@
 .codex
 plugins/openclaw-powd/*.tgz
 plugins/openclaw-powd/node_modules
+result

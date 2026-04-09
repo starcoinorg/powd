@@ -14,29 +14,35 @@ async function loadConfig(configApi) {
   return await Promise.resolve(configApi.loadConfig());
 }
 
-async function runInstall(api) {
-  const version = api.version?.trim();
-  if (!version) {
-    throw new Error("powd plugin version is unavailable");
-  }
+function normalizeRequestedVersion(version) {
+  return typeof version === "string" && version.trim() ? version.trim() : undefined;
+}
 
+function extractToolVersion(params) {
+  return normalizeRequestedVersion(params?.version);
+}
+
+function extractEventVersion(event) {
+  return (
+    normalizeRequestedVersion(event?.params?.version) ??
+    normalizeRequestedVersion(event?.arguments?.version) ??
+    normalizeRequestedVersion(event?.args?.version)
+  );
+}
+
+async function runInstall(api, requestedVersion) {
   return await installPowd({
-    version,
+    version: normalizeRequestedVersion(requestedVersion),
     stateDir: api.runtime.state.resolveStateDir(),
     configApi: api.runtime.config,
     logger: api.logger,
   });
 }
 
-async function runStatus(api) {
-  const version = api.version?.trim();
-  if (!version) {
-    throw new Error("powd plugin version is unavailable");
-  }
-
+async function runStatus(api, expectedVersion) {
   const config = await loadConfig(api.runtime.config);
   const status = await collectSetupStatus({
-    expectedVersion: version,
+    expectedVersion: normalizeRequestedVersion(expectedVersion),
     stateDir: api.runtime.state.resolveStateDir(),
     config,
   });
@@ -53,14 +59,20 @@ export default definePluginEntry({
       description:
         "Check whether powd is already installed and registered on this OpenClaw host. " +
         "Use this before asking to install powd, or when powd tools are missing and setup may be broken. " +
-        "Do not use this for wallet or miner operations.",
+        "Do not use this for wallet or miner operations. " +
+        "Optionally provide version to compare the current install against a specific powd release.",
       parameters: {
         type: "object",
         additionalProperties: false,
-        properties: {},
+        properties: {
+          version: {
+            type: "string",
+            description: "Optional powd release version to compare against, such as 1.0.0 or 1.0.0-rc.1.",
+          },
+        },
       },
-      async execute() {
-        const status = await runStatus(api);
+      async execute(_toolCallId, params) {
+        const status = await runStatus(api, extractToolVersion(params));
         return buildStatusToolResult(status);
       },
     });
@@ -70,15 +82,21 @@ export default definePluginEntry({
       description:
         "Install or repair powd on this OpenClaw host. " +
         "Use this when the user wants powd available in OpenClaw or when the saved powd MCP registration is missing or broken. " +
-        "This downloads the matching powd release from GitHub Releases, installs it locally, and registers mcp.servers.powd. " +
+        "By default this downloads the latest stable powd release from GitHub Releases, installs it locally, and registers mcp.servers.powd. " +
+        "Provide version to pin a specific powd release, including prereleases. " +
         "Do not use this for wallet setup or miner control.",
       parameters: {
         type: "object",
         additionalProperties: false,
-        properties: {},
+        properties: {
+          version: {
+            type: "string",
+            description: "Optional powd release version to install, such as 1.0.0 or 1.0.0-rc.1.",
+          },
+        },
       },
-      async execute() {
-        const result = await runInstall(api);
+      async execute(_toolCallId, params) {
+        const result = await runInstall(api, extractToolVersion(params));
         return buildInstallToolResult(result);
       },
     });
@@ -88,14 +106,7 @@ export default definePluginEntry({
         return undefined;
       }
 
-      const version = api.version?.trim();
-      if (!version) {
-        return {
-          block: true,
-          blockReason: "powd plugin version is unavailable",
-        };
-      }
-
+      const version = extractEventVersion(event);
       const config = await loadConfig(api.runtime.config);
       const status = await collectSetupStatus({
         expectedVersion: version,
@@ -115,23 +126,25 @@ export default definePluginEntry({
       requireAuth: true,
       handler: async (ctx) => {
         const args = (ctx.args ?? "").trim();
-        const action = args.split(/\s+/).filter(Boolean)[0] ?? "status";
+        const parts = args.split(/\s+/).filter(Boolean);
+        const action = parts[0] ?? "status";
+        const version = normalizeRequestedVersion(parts[1]);
 
         if (action === "install") {
-          const result = await runInstall(api);
+          const result = await runInstall(api, version);
           return buildInstallCommandReply(result);
         }
 
         if (action === "status" || action === "help") {
-          const status = await runStatus(api);
+          const status = await runStatus(api, version);
           return buildStatusCommandReply(status);
         }
 
         return {
           text:
             "Usage:\n" +
-            "/powd status\n" +
-            "/powd install",
+            "/powd status [version]\n" +
+            "/powd install [version]",
         };
       },
     });
@@ -141,8 +154,8 @@ export default definePluginEntry({
         registerPowdCli({
           program,
           api,
-          runInstall: async () => buildInstallToolResult(await runInstall(api)),
-          runStatus: async () => buildStatusToolResult(await runStatus(api)),
+          runInstall: async (version) => buildInstallToolResult(await runInstall(api, version)),
+          runStatus: async (version) => buildStatusToolResult(await runStatus(api, version)),
         });
       },
       {

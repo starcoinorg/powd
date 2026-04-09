@@ -11,6 +11,7 @@ notes=""
 notes_file=""
 generate_notes=0
 dry_run=0
+prerelease=0
 
 usage() {
   cat <<'EOF'
@@ -30,6 +31,7 @@ Default behavior:
       powd-v<version>-linux-x86_64.tar.gz.sha256
   - create the GitHub Release if it does not already exist
   - generate GitHub-style release title and notes by default
+  - mark versions with a prerelease suffix such as -rc.1 or -beta.1 as GitHub prereleases
   - let --notes / --notes-file override the default notes body
   - upload all assets with --clobber
 
@@ -132,6 +134,10 @@ fi
 version="$cargo_version"
 if [ -z "$tag" ]; then
   tag="v$version"
+fi
+
+if [[ "$version" == *-* ]]; then
+  prerelease=1
 fi
 
 if [ -z "$output_dir" ]; then
@@ -263,17 +269,27 @@ trap 'cleanup; cleanup_release_notes' EXIT
 
 if [ "$release_exists" -eq 0 ]; then
   echo "==> creating release $tag in $repo"
+  create_args=()
+  if [ "$prerelease" -eq 1 ]; then
+    create_args+=(--prerelease)
+  fi
   gh release create "$tag" \
     --repo "$repo" \
     --verify-tag \
     --title "$release_title" \
-    --notes-file "$release_notes_path"
+    --notes-file "$release_notes_path" \
+    "${create_args[@]}"
 else
   echo "==> updating release notes for $tag in $repo"
+  edit_args=()
+  if [ "$prerelease" -eq 1 ]; then
+    edit_args+=(--prerelease)
+  fi
   gh release edit "$tag" \
     --repo "$repo" \
     --title "$release_title" \
-    --notes-file "$release_notes_path"
+    --notes-file "$release_notes_path" \
+    "${edit_args[@]}"
 fi
 
 echo "==> uploading assets to $repo@$tag"

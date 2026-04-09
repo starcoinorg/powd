@@ -64,8 +64,8 @@ export async function collectSetupStatus({ expectedVersion, stateDir, config, pl
     message = registered
       ? "powd is installed, but install metadata is missing. Reinstalling will refresh it."
       : "powd is installed, but it is not registered with OpenClaw yet.";
-  } else if (version !== expectedVersion) {
-    message = `powd ${version} is installed, but this plugin expects ${expectedVersion}. Reinstalling will update it.`;
+  } else if (expectedVersion && version !== expectedVersion) {
+    message = `powd ${version} is installed, but the requested version is ${expectedVersion}. Reinstalling will update it.`;
   } else if (!registered) {
     message = "powd is installed, but it is not registered with OpenClaw yet.";
   } else if (!mcpCommandMatchesInstall) {
@@ -99,4 +99,3 @@ export function toPublicSetupStatus(status) {
     message: status.message,
   };
 }
-
