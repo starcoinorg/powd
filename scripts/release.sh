@@ -185,7 +185,10 @@ head_commit="$(git -C "$repo_root" rev-parse HEAD)"
 local_tag_commit="$(git -C "$repo_root" rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null || true)"
 remote_tag_commit=""
 if [ "$dry_run" -eq 0 ]; then
-  remote_tag_commit="$(git -C "$repo_root" ls-remote --tags "$remote" "refs/tags/$tag" | awk '{print $1}' | head -n 1)"
+  remote_tag_commit="$(git -C "$repo_root" ls-remote --tags "$remote" "refs/tags/$tag^{}" | awk '{print $1}' | head -n 1)"
+  if [ -z "$remote_tag_commit" ]; then
+    remote_tag_commit="$(git -C "$repo_root" ls-remote --tags "$remote" "refs/tags/$tag" | awk '{print $1}' | head -n 1)"
+  fi
 fi
 
 if [ -n "$local_tag_commit" ] && [ "$local_tag_commit" != "$head_commit" ] && [ "$dry_run" -eq 0 ]; then
