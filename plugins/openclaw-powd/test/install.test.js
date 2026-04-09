@@ -303,10 +303,11 @@ test("installPowd requires --replace before switching an existing install to a d
   try {
     const currentVersion = "1.0.0";
     const requestedVersion = "1.0.1";
-    await createReleaseFixture(tempRoot, requestedVersion);
+    const platform = resolvePlatform("linux", "x64");
+    await createReleaseFixture(tempRoot, requestedVersion, platform);
 
     const stateDir = path.join(tempRoot, "state");
-    const managedBinaryPath = path.join(stateDir, "plugins", "powd", "bin", "powd");
+    const managedBinaryPath = path.join(stateDir, "plugins", "powd", "bin", platform.binaryName);
     const metadataPath = path.join(stateDir, "plugins", "powd", "install.json");
     await fs.mkdir(path.dirname(managedBinaryPath), { recursive: true });
     await fs.writeFile(managedBinaryPath, "#!/usr/bin/env sh\necho powd\n", "utf8");
@@ -334,6 +335,7 @@ test("installPowd requires --replace before switching an existing install to a d
       version: requestedVersion,
       stateDir,
       configApi,
+      platform,
     });
 
     assert.equal(result.ok, false);
@@ -451,7 +453,7 @@ test("installPowd supports darwin arm64 assets when the host platform is Apple S
       assert.equal(result.status.installed, true);
       assert.equal(result.status.registered, true);
       assert.equal(result.status.version, version);
-      assert.equal(result.status.binaryPath?.endsWith("/powd"), true);
+      assert.equal(path.basename(result.status.binaryPath ?? ""), platform.binaryName);
       assert.deepEqual(configApi.snapshot().plugins.allow, ["powd"]);
     });
   } finally {
