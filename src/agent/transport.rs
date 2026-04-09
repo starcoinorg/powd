@@ -137,9 +137,7 @@ pub fn verify_local_peer(stream: &LocalConnection) -> Result<()> {
         let expected_uid = unsafe { libc::geteuid() };
         if peer_euid != expected_uid {
             anyhow::bail!(
-                "reject peer uid {} on local api socket; expected {}",
-                peer_euid,
-                expected_uid
+                "reject peer uid {peer_euid} on local api socket; expected {expected_uid}"
             );
         }
     }
