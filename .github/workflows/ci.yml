@@ -92,23 +92,14 @@ jobs:
           corepack enable
           OPENCLAW_VERSION="$(sed -n 's/^  version = "\(.*\)";$/\1/p' openclaw.nix | head -n 1)"
           test -n "$OPENCLAW_VERSION"
-          curl -L "https://github.com/openclaw/openclaw/archive/refs/tags/v${OPENCLAW_VERSION}.tar.gz" | tar -xz -C "$RUNNER_TEMP"
-          WORKSPACE="$RUNNER_TEMP/openclaw-${OPENCLAW_VERSION}"
-          (
-            cd "$WORKSPACE"
-            pnpm install --frozen-lockfile
-            pnpm build
-          )
+          INSTALL_ROOT="$RUNNER_TEMP/openclaw-cli"
+          npm install --prefix "$INSTALL_ROOT" "openclaw@${OPENCLAW_VERSION}"
           mkdir -p "$RUNNER_TEMP/bin"
           cat >"$RUNNER_TEMP/bin/openclaw" <<EOF
           #!/usr/bin/env bash
-          exec node "$WORKSPACE/openclaw.mjs" "\$@"
+          exec node "$INSTALL_ROOT/node_modules/openclaw/openclaw.mjs" "\$@"
           EOF
-          cat >"$RUNNER_TEMP/bin/openclaw-bootstrap" <<EOF
-          #!/usr/bin/env bash
-          printf '%s\n' "$WORKSPACE"
-          EOF
-          chmod +x "$RUNNER_TEMP/bin/openclaw" "$RUNNER_TEMP/bin/openclaw-bootstrap"
+          chmod +x "$RUNNER_TEMP/bin/openclaw"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Run plugin smoke
@@ -157,24 +148,14 @@ jobs:
             throw "failed to resolve OpenClaw version from openclaw.nix"
           }
           $openclawVersion = $match.Matches[0].Groups[1].Value
-          $archivePath = Join-Path $env:RUNNER_TEMP "openclaw.tar.gz"
-          Invoke-WebRequest -Uri "https://github.com/openclaw/openclaw/archive/refs/tags/v$openclawVersion.tar.gz" -OutFile $archivePath
-          tar -xzf $archivePath -C $env:RUNNER_TEMP
-          $workspace = Join-Path $env:RUNNER_TEMP "openclaw-$openclawVersion"
-          Push-Location $workspace
-          pnpm install --frozen-lockfile
-          pnpm build
-          Pop-Location
+          $installRoot = Join-Path $env:RUNNER_TEMP "openclaw-cli"
+          npm install --prefix $installRoot "openclaw@$openclawVersion"
           $binDir = Join-Path $env:RUNNER_TEMP "bin"
           New-Item -ItemType Directory -Force -Path $binDir | Out-Null
           @"
           @echo off
-          node "$workspace\openclaw.mjs" %*
+          node "$installRoot\node_modules\openclaw\openclaw.mjs" %*
           "@ | Set-Content -Path (Join-Path $binDir "openclaw.cmd") -Encoding Ascii
-          @"
-          @echo off
-          echo $workspace
-          "@ | Set-Content -Path (Join-Path $binDir "openclaw-bootstrap.cmd") -Encoding Ascii
           $binDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Run plugin smoke

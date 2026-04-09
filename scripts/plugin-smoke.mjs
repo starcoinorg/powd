@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 import { resolvePlatform } from "../plugins/openclaw-powd/src/platform.js";
@@ -97,6 +98,111 @@ async function ensureCommand(command, args = ["--version"]) {
     await runCommand(command, args);
   } catch (error) {
     throw new Error(`missing required command: ${command}\n${error.message}`);
+  }
+}
+
+async function listMcpTools(server) {
+  const child = spawn(server.command, server.args ?? [], {
+    cwd: repoRoot,
+    env: {
+      ...smokeEnv,
+      ...(server.env ?? {}),
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stderr = "";
+  let buffer = "";
+  const pending = new Map();
+  let nextId = 1;
+
+  const rejectAll = (error) => {
+    for (const { reject } of pending.values()) {
+      reject(error);
+    }
+    pending.clear();
+  };
+
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk.toString();
+    for (;;) {
+      const newlineIndex = buffer.indexOf("\n");
+      if (newlineIndex === -1) {
+        break;
+      }
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (!line) {
+        continue;
+      }
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch (error) {
+        rejectAll(new Error(`invalid MCP JSON line: ${line}\n${error}`));
+        return;
+      }
+      if (message.id == null) {
+        continue;
+      }
+      const waiter = pending.get(String(message.id));
+      if (!waiter) {
+        continue;
+      }
+      pending.delete(String(message.id));
+      if (message.error) {
+        waiter.reject(
+          new Error(`MCP request failed: ${JSON.stringify(message.error)}\n${stderr}`.trim()),
+        );
+        continue;
+      }
+      waiter.resolve(message.result);
+    }
+  });
+
+  child.once("error", (error) => rejectAll(error));
+  child.once("exit", (code, signal) => {
+    if (pending.size === 0) {
+      return;
+    }
+    const reason =
+      signal != null
+        ? `signal ${signal}`
+        : `exit code ${code ?? "unknown"}${stderr ? `\n${stderr}` : ""}`;
+    rejectAll(new Error(`powd MCP server exited before responding (${reason})`));
+  });
+
+  const request = (method, params) =>
+    new Promise((resolve, reject) => {
+      const id = nextId++;
+      pending.set(String(id), { resolve, reject });
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    });
+
+  try {
+    const initialize = await request("initialize", {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "powd-plugin-smoke", version: "1.0.0" },
+    });
+    assert.equal(initialize.protocolVersion, "2025-11-25");
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+        params: {},
+      })}\n`,
+    );
+    const tools = await request("tools/list", {});
+    return tools.tools ?? [];
+  } finally {
+    child.stdin.end();
+    child.kill();
+    await once(child, "close").catch(() => {});
   }
 }
 
@@ -237,7 +343,6 @@ async function main() {
   await ensureCommand("node");
   await ensureCommand("npm");
   await ensureCommand("openclaw");
-  await ensureCommand("openclaw-bootstrap", []);
 
   const platform = resolvePlatform(process.platform, process.arch);
   if (!platform?.supported) {
@@ -295,70 +400,20 @@ async function main() {
       assert.equal(saved.command, install.binaryPath);
       assert.deepEqual(saved.args, ["mcp", "serve"]);
       assert.deepEqual(saved.env, {});
-
-      const workspace = (await runCommand("openclaw-bootstrap", [])).stdout.trim();
-      const materializeWorkspace = path.join(openClawRoot, "materialize-workspace");
-      const materializeTest = path.join(openClawRoot, "powd-plugin-materialize.test.ts");
-      await fs.writeFile(
-        materializeTest,
-        `
-import fs from "node:fs/promises";
-import { afterAll, expect, it } from "vitest";
-
-let runtime;
-
-afterAll(async () => {
-  await runtime?.dispose();
-});
-
-it("materializes powd MCP tools from the plugin-managed registration", async () => {
-  const { createBundleMcpToolRuntime } = await import(
-    \`\${process.env.OPENCLAW_WORKSPACE_ROOT}/src/agents/pi-bundle-mcp-tools.ts\`,
-  );
-  const workspaceDir = process.env.OPENCLAW_MATERIALIZE_WORKSPACE;
-  const server = JSON.parse(process.env.SERVER_JSON);
-  await fs.mkdir(workspaceDir, { recursive: true });
-
-  runtime = await createBundleMcpToolRuntime({
-    workspaceDir,
-    cfg: {
-      mcp: {
-        servers: {
-          powd: server,
-        },
-      },
-    },
-  });
-
-  expect(runtime.tools).toHaveLength(9);
-  const names = runtime.tools.map((tool) => tool.name).toSorted();
-  expect(names).toContain("powd__wallet_set");
-  expect(names).toContain("powd__wallet_show");
-  expect(names).toContain("powd__wallet_reward");
-  expect(names).toContain("powd__miner_status");
-  expect(names).toContain("powd__miner_set_mode");
-});
-`,
-        "utf8",
-      );
-
-      try {
-        await runCommand(
-          "node",
-          ["scripts/run-vitest.mjs", "run", "--config", "vitest.unit.config.ts", materializeTest],
-          {
-            cwd: workspace,
-            env: {
-              ...smokeEnv,
-              SERVER_JSON: JSON.stringify(saved),
-              OPENCLAW_WORKSPACE_ROOT: workspace,
-              OPENCLAW_MATERIALIZE_WORKSPACE: materializeWorkspace,
-            },
-          },
-        );
-      } finally {
-        await fs.rm(materializeTest, { force: true });
-      }
+      const tools = await listMcpTools(saved);
+      assert.equal(tools.length, 9);
+      const toolNames = tools.map((tool) => tool.name).sort();
+      assert.deepEqual(toolNames, [
+        "miner_pause",
+        "miner_resume",
+        "miner_set_mode",
+        "miner_start",
+        "miner_status",
+        "miner_stop",
+        "wallet_reward",
+        "wallet_set",
+        "wallet_show",
+      ]);
     } finally {
       await fs.rm(pluginPath, { force: true });
     }
