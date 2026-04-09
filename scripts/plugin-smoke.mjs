@@ -84,16 +84,45 @@ async function runCommand(command, args, options = {}) {
       env: options.env ?? smokeEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    const timeoutMs = options.timeoutMs ?? 0;
+    let settled = false;
     let stdout = "";
     let stderr = "";
+    const timeout =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            if (settled) {
+              return;
+            }
+            child.kill();
+            reject(
+              new Error(
+                `${resolvedCommand} ${args.join(" ")} timed out after ${timeoutMs}ms\n${stdout}${stderr}`.trim(),
+              ),
+            );
+          }, timeoutMs)
+        : null;
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      reject(error);
+    });
     child.on("close", (code) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
       if (code === 0) {
         resolve({ stdout, stderr, output: stdout + stderr });
         return;
@@ -109,7 +138,7 @@ async function runCommand(command, args, options = {}) {
 
 async function ensureCommand(command, args = ["--version"]) {
   try {
-    await runCommand(command, args);
+    await runCommand(command, args, { timeoutMs: 30_000 });
   } catch (error) {
     throw new Error(`missing required command: ${command}\n${error.message}`);
   }
@@ -129,6 +158,7 @@ async function listMcpTools(server) {
   let buffer = "";
   const pending = new Map();
   let nextId = 1;
+  const requestTimeoutMs = 15_000;
 
   const rejectAll = (error) => {
     for (const { reject } of pending.values()) {
@@ -193,7 +223,20 @@ async function listMcpTools(server) {
   const request = (method, params) =>
     new Promise((resolve, reject) => {
       const id = nextId++;
-      pending.set(String(id), { resolve, reject });
+      const timeout = setTimeout(() => {
+        pending.delete(String(id));
+        reject(new Error(`MCP request timed out: ${method}`));
+      }, requestTimeoutMs);
+      pending.set(String(id), {
+        resolve: (value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
       child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     });
 
@@ -363,7 +406,8 @@ async function main() {
     throw new Error(`powd plugin smoke requires a supported host platform (${process.platform}:${process.arch})`);
   }
 
-  await runCommand("cargo", ["build", "--quiet", "--bin", "powd"]);
+  process.stderr.write(`[smoke] building powd for ${process.platform}:${process.arch}\n`);
+  await runCommand("cargo", ["build", "--quiet", "--bin", "powd"], { timeoutMs: 600_000 });
   const version = await readCargoVersion();
   const powdBinaryPath = resolvePowdBinaryPath();
   const fixtureRoot = path.join(openClawRoot, "release-fixture");
@@ -371,7 +415,11 @@ async function main() {
 
   await withHttpServer(fixtureRoot, async (port) => {
     const pluginDir = path.join(repoRoot, "plugins", "openclaw-powd");
-    const packed = await runCommand("npm", ["pack", "--silent"], { cwd: pluginDir });
+    process.stderr.write("[smoke] packing OpenClaw plugin archive\n");
+    const packed = await runCommand("npm", ["pack", "--silent"], {
+      cwd: pluginDir,
+      timeoutMs: 120_000,
+    });
     const pluginName = packed.stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
     if (!pluginName) {
       throw new Error("npm pack did not produce a plugin archive name");
@@ -379,58 +427,75 @@ async function main() {
       const pluginPath = path.join(pluginDir, pluginName);
 
       try {
-        await runOpenClaw(["plugins", "install", pluginPath]);
-        await runOpenClaw(["gateway", "restart"]);
+        process.stderr.write("[smoke] installing plugin into OpenClaw\n");
+        await runOpenClaw(["plugins", "install", pluginPath], { timeoutMs: 120_000 });
+        process.stderr.write("[smoke] restarting OpenClaw gateway\n");
+        await runOpenClaw(["gateway", "restart"], { timeoutMs: 120_000 });
 
-        const inspect = await runOpenClawJson(["plugins", "inspect", "powd", "--json"]);
+        process.stderr.write("[smoke] inspecting loaded plugin\n");
+        const inspect = await runOpenClawJson(["plugins", "inspect", "powd", "--json"], {
+          timeoutMs: 60_000,
+        });
         assert.equal(inspect.plugin.id, "powd");
 
-      const before = await runOpenClawJson(["powd", "status", "--json"]);
-      assert.equal(before.installed, false);
-      assert.equal(before.registered, false);
+        process.stderr.write("[smoke] checking setup status before install\n");
+        const before = await runOpenClawJson(["powd", "status", "--json"], { timeoutMs: 60_000 });
+        assert.equal(before.installed, false);
+        assert.equal(before.registered, false);
 
-      const releaseBaseUrl = `http://127.0.0.1:${port}/releases/download`;
-      const releaseApiBaseUrl = `http://127.0.0.1:${port}/api/releases`;
-      await runOpenClaw([
-        "config",
-        "set",
-        "plugins.entries.powd.config.releaseBaseUrl",
-        JSON.stringify(releaseBaseUrl),
-      ]);
-      await runOpenClaw([
-        "config",
-        "set",
-        "plugins.entries.powd.config.releaseApiBaseUrl",
-        JSON.stringify(releaseApiBaseUrl),
-      ]);
+        const releaseBaseUrl = `http://127.0.0.1:${port}/releases/download`;
+        const releaseApiBaseUrl = `http://127.0.0.1:${port}/api/releases`;
+        process.stderr.write("[smoke] configuring local release fixture overrides\n");
+        await runOpenClaw(
+          [
+            "config",
+            "set",
+            "plugins.entries.powd.config.releaseBaseUrl",
+            JSON.stringify(releaseBaseUrl),
+          ],
+          { timeoutMs: 60_000 },
+        );
+        await runOpenClaw(
+          [
+            "config",
+            "set",
+            "plugins.entries.powd.config.releaseApiBaseUrl",
+            JSON.stringify(releaseApiBaseUrl),
+          ],
+          { timeoutMs: 60_000 },
+        );
 
-      const install = await runOpenClawJson(["powd", "install", "--json"]);
-      assert.equal(install.installed, true);
-      assert.equal(install.registered, true);
-      assert.equal(install.version, version);
-      assert.equal(install.mcpCommandMatchesInstall, true);
+        process.stderr.write("[smoke] installing powd through the plugin\n");
+        const install = await runOpenClawJson(["powd", "install", "--json"], { timeoutMs: 120_000 });
+        assert.equal(install.installed, true);
+        assert.equal(install.registered, true);
+        assert.equal(install.version, version);
+        assert.equal(install.mcpCommandMatchesInstall, true);
 
-      const saved = await runOpenClawJson(["mcp", "show", "powd", "--json"]);
-      assert.equal(saved.command, install.binaryPath);
-      assert.deepEqual(saved.args, ["mcp", "serve"]);
-      assert.deepEqual(saved.env, {});
-      const tools = await listMcpTools(saved);
-      assert.equal(tools.length, 9);
-      const toolNames = tools.map((tool) => tool.name).sort();
-      assert.deepEqual(toolNames, [
-        "miner_pause",
-        "miner_resume",
-        "miner_set_mode",
-        "miner_start",
-        "miner_status",
-        "miner_stop",
-        "wallet_reward",
-        "wallet_set",
-        "wallet_show",
-      ]);
-    } finally {
-      await fs.rm(pluginPath, { force: true });
-    }
+        process.stderr.write("[smoke] verifying MCP registration\n");
+        const saved = await runOpenClawJson(["mcp", "show", "powd", "--json"], { timeoutMs: 60_000 });
+        assert.equal(saved.command, install.binaryPath);
+        assert.deepEqual(saved.args, ["mcp", "serve"]);
+        assert.deepEqual(saved.env, {});
+
+        process.stderr.write("[smoke] listing powd MCP tools over stdio\n");
+        const tools = await listMcpTools(saved);
+        assert.equal(tools.length, 9);
+        const toolNames = tools.map((tool) => tool.name).sort();
+        assert.deepEqual(toolNames, [
+          "miner_pause",
+          "miner_resume",
+          "miner_set_mode",
+          "miner_start",
+          "miner_status",
+          "miner_stop",
+          "wallet_reward",
+          "wallet_set",
+          "wallet_show",
+        ]);
+      } finally {
+        await fs.rm(pluginPath, { force: true });
+      }
   });
 
   process.stdout.write("OpenClaw plugin smoke passed\n");
