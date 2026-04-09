@@ -148,6 +148,20 @@ pub(super) fn current_executable_path() -> Result<PathBuf, WalletAgentError> {
     })
 }
 
+pub(super) fn public_entry_executable_path() -> Result<PathBuf, WalletAgentError> {
+    if let Ok(bin) = std::env::var("CARGO_BIN_EXE_powd") {
+        return Ok(PathBuf::from(bin));
+    }
+    let current = current_executable_path()?;
+    let is_cargo_test_dep = current
+        .components()
+        .any(|component| component.as_os_str() == "deps");
+    if !is_cargo_test_dep {
+        return Ok(current);
+    }
+    resolve_binary_from_current_exe("powd")
+}
+
 pub(super) fn write_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
     let parent = path.parent().ok_or_else(|| {
         std::io::Error::new(

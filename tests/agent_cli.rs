@@ -307,6 +307,12 @@ async fn agent_cli_help_shows_wallet_miner_doctor_and_mcp_mode() -> Result<()> {
     assert!(!daemon_stdout.contains("--login"));
     assert!(!daemon_stdout.contains("--pool"));
     assert!(!daemon_stdout.contains("__daemon"));
+
+    let hidden_mode = Command::new(&ctl_bin)
+        .args(["__daemon", "--help"])
+        .output()
+        .context("run powd __daemon --help failed")?;
+    assert!(!hidden_mode.status.success());
     Ok(())
 }
 

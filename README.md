@@ -47,6 +47,8 @@ The MCP surface intentionally exposes a small business tool set around wallet id
 
 For OpenClaw, the integration model is standard local MCP over `stdio`. `powd` provides the registration shape, launches the bridge, and self-bootstraps its hidden daemon mode when runtime work is needed. The host only needs to register `powd` and call tools.
 
+Releases after the single-entrypoint refactor no longer ship `powctl`. Existing scripts or host registrations that still call `powctl` need to be updated to `powd`.
+
 ## Why this matters
 
 If `powd` were only a CLI, natural language would just be a thin translation layer over shell commands.

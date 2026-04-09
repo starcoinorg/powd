@@ -1,7 +1,7 @@
 use super::config::{build_miner_config, default_socket_path, default_state_path, MintProfile};
 use super::reward::{fetch_wallet_reward, WalletRewardSnapshot};
 use super::wallet_support::{
-    current_executable_path, profile_with_defaults, resolve_binary_from_current_exe,
+    current_executable_path, profile_with_defaults, public_entry_executable_path,
     wait_for_daemon_ready, write_file_atomically, DoctorReport, WalletAgentError,
     WalletConfigSummary,
 };
@@ -240,9 +240,7 @@ impl WalletAgent {
     }
 
     pub fn mcp_config(&self, server_only: bool) -> Result<Value, WalletAgentError> {
-        let command = resolve_binary_from_current_exe("powd")?
-            .display()
-            .to_string();
+        let command = public_entry_executable_path()?.display().to_string();
         let server = json!({
             "command": command,
             "args": ["mcp", "serve"],
@@ -365,7 +363,7 @@ impl WalletAgent {
     async fn spawn_daemon(&self) -> Result<(), WalletAgentError> {
         let bin = current_executable_path()?;
         let mut child = Command::new(bin)
-            .arg("__daemon")
+            .env("POWD_INTERNAL_DAEMON", "1")
             .arg("--socket")
             .arg(&self.socket_path)
             .stdout(Stdio::null())

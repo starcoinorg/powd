@@ -37,7 +37,7 @@ impl AgentProcess {
         let mut cmd = Command::new(bin);
         cmd.env("POWD_MAIN_POOL", pool)
             .env("POWD_MAIN_STRATEGY", strategy)
-            .arg("__daemon")
+            .env("POWD_INTERNAL_DAEMON", "1")
             .arg("--socket")
             .arg(&socket_path)
             .stdout(Stdio::null())
