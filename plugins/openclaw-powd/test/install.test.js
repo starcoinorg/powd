@@ -104,6 +104,7 @@ test("installPowd downloads, installs, and registers powd", async () => {
       const cfg = configApi.snapshot();
       assert.equal(cfg.mcp.servers.powd.args[0], "mcp");
       assert.equal(cfg.mcp.servers.powd.args[1], "serve");
+      assert.deepEqual(cfg.plugins.allow, ["powd"]);
 
       await fs.access(result.status.binaryPath);
       const metadataRaw = await fs.readFile(path.join(tempRoot, "state", "plugins", "powd", "install.json"), "utf8");
@@ -146,6 +147,7 @@ test("installPowd replaces a foreign powd registration", async () => {
       assert.equal(result.overwroteForeignRegistration, true);
       assert.match(result.message, /replaced/i);
       assert.notEqual(configApi.snapshot().mcp.servers.powd.command, "/opt/custom/powd");
+      assert.deepEqual(configApi.snapshot().plugins.allow, ["powd"]);
     });
   } finally {
     delete process.env.POWD_PLUGIN_RELEASE_BASE_URL;

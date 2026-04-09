@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPowdServer, getPowdServer, isManagedPowdServer, upsertPowdServer } from "../src/config.js";
+import {
+  buildPowdServer,
+  getPowdServer,
+  isManagedPowdServer,
+  upsertPowdPluginAllow,
+  upsertPowdServer,
+} from "../src/config.js";
 
 test("upsertPowdServer writes the expected OpenClaw config shape", () => {
   const cfg = upsertPowdServer({}, "/tmp/powd");
@@ -35,4 +41,15 @@ test("isManagedPowdServer recognizes the plugin-owned registration", () => {
     ),
     false,
   );
+});
+
+test("upsertPowdPluginAllow appends powd without clobbering existing allow entries", () => {
+  const cfg = upsertPowdPluginAllow({
+    plugins: {
+      allow: ["openai", "telegram"],
+    },
+  });
+
+  assert.deepEqual(cfg.plugins.allow, ["openai", "telegram", "powd"]);
+  assert.deepEqual(upsertPowdPluginAllow(cfg).plugins.allow, ["openai", "telegram", "powd"]);
 });

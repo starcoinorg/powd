@@ -8,7 +8,7 @@ import zlib from "node:zlib";
 import { buildReleaseSpec, parseSha256Text } from "./releases.js";
 import { resolvePlatform } from "./platform.js";
 import { collectSetupStatus, resolveManagedPaths, toPublicSetupStatus } from "./status.js";
-import { upsertPowdServer } from "./config.js";
+import { upsertPowdPluginAllow, upsertPowdServer } from "./config.js";
 
 function log(logger, level, message) {
   const writer = logger?.[level];
@@ -213,8 +213,17 @@ export async function installPowd({ version, stateDir, configApi, logger }) {
   const overwroteForeignRegistration = statusBeforeWrite.foreignRegistration;
 
   let finalConfig = configBeforeWrite;
-  if (!statusBeforeWrite.registered || !statusBeforeWrite.mcpCommandMatchesInstall) {
-    finalConfig = upsertPowdServer(configBeforeWrite, statusBeforeWrite.managedPaths.binaryPath);
+  const needsServerUpdate = !statusBeforeWrite.registered || !statusBeforeWrite.mcpCommandMatchesInstall;
+  const needsPluginAllow = !(Array.isArray(configBeforeWrite?.plugins?.allow) && configBeforeWrite.plugins.allow.includes("powd"));
+
+  if (needsServerUpdate || needsPluginAllow) {
+    finalConfig = configBeforeWrite;
+    if (needsServerUpdate) {
+      finalConfig = upsertPowdServer(finalConfig, statusBeforeWrite.managedPaths.binaryPath);
+    }
+    if (needsPluginAllow) {
+      finalConfig = upsertPowdPluginAllow(finalConfig);
+    }
     await configApi.writeConfigFile(finalConfig);
   }
 

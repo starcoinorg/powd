@@ -52,3 +52,15 @@ export function upsertPowdServer(config, binaryPath) {
   };
 }
 
+export function upsertPowdPluginAllow(config) {
+  const currentAllow = Array.isArray(config?.plugins?.allow) ? config.plugins.allow : [];
+  const allow = currentAllow.includes(MCP_SERVER_NAME) ? currentAllow : [...currentAllow, MCP_SERVER_NAME];
+
+  return {
+    ...config,
+    plugins: {
+      ...config?.plugins,
+      allow,
+    },
+  };
+}
