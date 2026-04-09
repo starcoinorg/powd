@@ -63,9 +63,23 @@ async function writeTarGzSingleFile({ archivePath, entryName, filePath }) {
   await fs.writeFile(archivePath, zlib.gzipSync(tarBuffer));
 }
 
+function resolveCommand(command) {
+  if (process.platform !== "win32") {
+    return command;
+  }
+  if (command.includes("\\") || command.includes("/") || path.extname(command)) {
+    return command;
+  }
+  if (command === "npm" || command === "openclaw") {
+    return `${command}.cmd`;
+  }
+  return command;
+}
+
 async function runCommand(command, args, options = {}) {
+  const resolvedCommand = resolveCommand(command);
   return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(resolvedCommand, args, {
       cwd: options.cwd ?? repoRoot,
       env: options.env ?? smokeEnv,
       stdio: ["ignore", "pipe", "pipe"],
@@ -86,7 +100,7 @@ async function runCommand(command, args, options = {}) {
       }
       reject(
         new Error(
-          `${command} ${args.join(" ")} failed with exit code ${code}\n${stdout}${stderr}`.trim(),
+          `${resolvedCommand} ${args.join(" ")} failed with exit code ${code}\n${stdout}${stderr}`.trim(),
         ),
       );
     });
