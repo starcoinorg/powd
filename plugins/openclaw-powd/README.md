@@ -54,25 +54,6 @@ To pin a specific release instead of the latest stable one, say:
 install powd 1.0.0-rc.1
 ```
 
-## Test override
+## Local Testing
 
-For local smoke tests, the plugin respects:
-
-- `POWD_PLUGIN_RELEASE_BASE_URL`
-- `POWD_PLUGIN_RELEASE_API_BASE_URL`
-
-Set it to a base URL shaped like:
-
-```text
-http://127.0.0.1:<port>/releases/download
-```
-
-The plugin will append `/v<version>/<asset>` automatically.
-
-For the latest stable lookup endpoint, use a base URL shaped like:
-
-```text
-http://127.0.0.1:<port>/api/releases
-```
-
-The plugin will request `/latest` from that API base.
+Local tests inject fixture release URLs directly into the installer. The published plugin always resolves releases from the official `starcoinorg/powd` GitHub Releases endpoints.

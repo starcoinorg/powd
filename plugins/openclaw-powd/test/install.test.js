@@ -1,20 +1,55 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFile as execFileCallback } from "node:child_process";
 import http from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import zlib from "node:zlib";
 import { buildReleaseSpec } from "../src/releases.js";
 import { installPowd } from "../src/install.js";
 import { resolvePlatform } from "../src/platform.js";
 
-const execFile = promisify(execFileCallback);
-
 function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function writeTarString(buffer, value, offset, length) {
+  const bytes = Buffer.from(value, "utf8");
+  bytes.copy(buffer, offset, 0, Math.min(bytes.length, length));
+}
+
+function writeTarOctal(buffer, value, offset, length) {
+  const digits = Math.max(length - 2, 1);
+  const encoded = `${Math.trunc(value).toString(8).padStart(digits, "0")}\0 `;
+  buffer.write(encoded.slice(-length), offset, length, "ascii");
+}
+
+function createTarHeader(name, size, mode = 0o755) {
+  const header = Buffer.alloc(512, 0);
+  writeTarString(header, name, 0, 100);
+  writeTarOctal(header, mode, 100, 8);
+  writeTarOctal(header, 0, 108, 8);
+  writeTarOctal(header, 0, 116, 8);
+  writeTarOctal(header, size, 124, 12);
+  writeTarOctal(header, Math.floor(Date.now() / 1000), 136, 12);
+  header.fill(0x20, 148, 156);
+  header.write("0", 156, 1, "ascii");
+  header.write("ustar", 257, 5, "ascii");
+  header.write("00", 263, 2, "ascii");
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  writeTarOctal(header, checksum, 148, 8);
+  return header;
+}
+
+async function writeTarGzSingleFile({ archivePath, entryName, filePath }) {
+  const data = await fs.readFile(filePath);
+  const header = createTarHeader(entryName, data.length);
+  const remainder = data.length % 512;
+  const padding = remainder === 0 ? Buffer.alloc(0) : Buffer.alloc(512 - remainder, 0);
+  const tarBuffer = Buffer.concat([header, data, padding, Buffer.alloc(1024, 0)]);
+  const gzipBuffer = zlib.gzipSync(tarBuffer);
+  await fs.writeFile(archivePath, gzipBuffer);
 }
 
 async function createReleaseFixture(rootDir, version) {
@@ -34,7 +69,11 @@ async function createReleaseFixture(rootDir, version) {
   await fs.chmod(powdPath, 0o755);
 
   const archivePath = path.join(releaseDir, spec.archiveName);
-  await execFile("tar", ["-C", stagingDir, "-czf", archivePath, platform.binaryName]);
+  await writeTarGzSingleFile({
+    archivePath,
+    entryName: platform.binaryName,
+    filePath: powdPath,
+  });
   const archiveBytes = await fs.readFile(archivePath);
   await fs.writeFile(path.join(releaseDir, spec.sha256Name), `${sha256(archiveBytes)}  ${spec.archiveName}\n`, "utf8");
 
@@ -90,13 +129,13 @@ test("installPowd downloads the latest stable release when no version is pinned"
     await createReleaseFixture(tempRoot, version);
 
     await withHttpServer(tempRoot, async (baseUrl) => {
-      process.env.POWD_PLUGIN_RELEASE_BASE_URL = baseUrl;
-      process.env.POWD_PLUGIN_RELEASE_API_BASE_URL = baseUrl.replace(/\/releases\/download$/, "/api/releases");
       const configApi = createConfigApi({});
 
       const result = await installPowd({
         stateDir: path.join(tempRoot, "state"),
         configApi,
+        releaseBaseUrl: baseUrl,
+        releaseApiBaseUrl: baseUrl.replace(/\/releases\/download$/, "/api/releases"),
       });
 
       assert.equal(result.ok, true);
@@ -116,8 +155,6 @@ test("installPowd downloads the latest stable release when no version is pinned"
       assert.equal(metadata.version, version);
     });
   } finally {
-    delete process.env.POWD_PLUGIN_RELEASE_BASE_URL;
-    delete process.env.POWD_PLUGIN_RELEASE_API_BASE_URL;
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 });
@@ -129,7 +166,6 @@ test("installPowd replaces a foreign powd registration without forcing a network
     await createReleaseFixture(tempRoot, version);
 
     await withHttpServer(tempRoot, async (baseUrl) => {
-      process.env.POWD_PLUGIN_RELEASE_BASE_URL = baseUrl;
       const stateDir = path.join(tempRoot, "state");
       const managedBinaryPath = path.join(stateDir, "plugins", "powd", "bin", "powd");
       const metadataPath = path.join(stateDir, "plugins", "powd", "install.json");
@@ -157,6 +193,7 @@ test("installPowd replaces a foreign powd registration without forcing a network
       const result = await installPowd({
         stateDir,
         configApi,
+        releaseBaseUrl: baseUrl,
       });
 
       assert.equal(result.ok, true);
@@ -166,7 +203,6 @@ test("installPowd replaces a foreign powd registration without forcing a network
       assert.deepEqual(configApi.snapshot().plugins.allow, ["powd"]);
     });
   } finally {
-    delete process.env.POWD_PLUGIN_RELEASE_BASE_URL;
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 });
@@ -178,13 +214,13 @@ test("installPowd accepts an explicit pinned version", async () => {
     await createReleaseFixture(tempRoot, version);
 
     await withHttpServer(tempRoot, async (baseUrl) => {
-      process.env.POWD_PLUGIN_RELEASE_BASE_URL = baseUrl;
       const configApi = createConfigApi({});
 
       const result = await installPowd({
         version: `v${version}`,
         stateDir: path.join(tempRoot, "state"),
         configApi,
+        releaseBaseUrl: baseUrl,
       });
 
       assert.equal(result.ok, true);
@@ -193,7 +229,6 @@ test("installPowd accepts an explicit pinned version", async () => {
       assert.equal(result.status.registered, true);
     });
   } finally {
-    delete process.env.POWD_PLUGIN_RELEASE_BASE_URL;
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 });

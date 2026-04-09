@@ -1,7 +1,5 @@
 import {
   POWD_RELEASE_API_BASE,
-  POWD_RELEASE_API_BASE_URL_ENV,
-  POWD_RELEASE_BASE_URL_ENV,
   POWD_RELEASE_REPO_BASE,
   normalizeVersion,
 } from "./constants.js";
@@ -11,7 +9,7 @@ function stripTrailingSlash(value) {
 }
 
 export async function resolveLatestStableVersion({
-  apiBaseOverride = process.env[POWD_RELEASE_API_BASE_URL_ENV],
+  apiBaseOverride,
   fetchImpl = fetch,
 } = {}) {
   const apiBase = stripTrailingSlash(apiBaseOverride?.trim() || POWD_RELEASE_API_BASE);
@@ -42,7 +40,7 @@ export function parseSha256Text(text) {
   return match[1].toLowerCase();
 }
 
-export function buildReleaseSpec({ version, platform, baseUrlOverride = process.env[POWD_RELEASE_BASE_URL_ENV] }) {
+export function buildReleaseSpec({ version, platform, baseUrlOverride }) {
   const normalizedVersion = normalizeVersion(version);
   if (!platform?.assetSuffix || !platform?.binaryName) {
     throw new Error("unsupported platform");

@@ -1,15 +1,14 @@
 import crypto from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import zlib from "node:zlib";
 import { normalizeVersion } from "./constants.js";
 import { buildReleaseSpec, parseSha256Text, resolveLatestStableVersion } from "./releases.js";
 import { resolvePlatform } from "./platform.js";
 import { collectSetupStatus, resolveManagedPaths, toPublicSetupStatus } from "./status.js";
 import { upsertPowdPluginAllow, upsertPowdServer } from "./config.js";
+import { downloadFile } from "./download.js";
+import { extractBinaryFromArchive } from "./archive.js";
 
 function log(logger, level, message) {
   const writer = logger?.[level];
@@ -25,16 +24,6 @@ async function writeJsonAtomic(targetPath, value) {
   await fs.rename(tempPath, targetPath);
 }
 
-async function downloadFile(url, destinationPath) {
-  const response = await fetch(url);
-  if (!response.ok || !response.body) {
-    throw new Error(`download failed (${response.status} ${response.statusText}) for ${url}`);
-  }
-
-  await fs.mkdir(path.dirname(destinationPath), { recursive: true });
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(destinationPath));
-}
-
 async function sha256File(filePath) {
   const hash = crypto.createHash("sha256");
   for await (const chunk of createReadStream(filePath)) {
@@ -42,63 +31,7 @@ async function sha256File(filePath) {
   }
   return hash.digest("hex");
 }
-
-function readTarString(buffer, start, end) {
-  const value = buffer.subarray(start, end).toString("utf8");
-  const nul = value.indexOf("\0");
-  return (nul === -1 ? value : value.slice(0, nul)).trim();
-}
-
-function readTarSize(buffer, start, end) {
-  const raw = readTarString(buffer, start, end).replace(/\0/g, "").trim();
-  if (!raw) {
-    return 0;
-  }
-  return Number.parseInt(raw, 8);
-}
-
-async function extractBinaryFromArchive({ archivePath, extractDir, binaryName, archiveName }) {
-  const archiveBytes = await fs.readFile(archivePath);
-  const tarBytes = zlib.gunzipSync(archiveBytes);
-  let offset = 0;
-  let extracted = false;
-
-  while (offset + 512 <= tarBytes.length) {
-    const header = tarBytes.subarray(offset, offset + 512);
-    if (header.every((byte) => byte === 0)) {
-      break;
-    }
-
-    const name = readTarString(header, 0, 100);
-    const prefix = readTarString(header, 345, 500);
-    const entryName = prefix ? `${prefix}/${name}` : name;
-    const entryType = readTarString(header, 156, 157) || "0";
-    const entrySize = readTarSize(header, 124, 136);
-    const contentStart = offset + 512;
-    const contentEnd = contentStart + entrySize;
-    if (contentEnd > tarBytes.length) {
-      throw new Error(`archive ${archiveName} is truncated`);
-    }
-
-    const normalizedEntryName = entryName.replace(/^\.\/+/, "");
-    const isRegularFile = entryType === "0" || entryType === "";
-    if (!extracted && isRegularFile && path.posix.basename(normalizedEntryName) === binaryName) {
-      const destinationPath = path.join(extractDir, binaryName);
-      await fs.mkdir(path.dirname(destinationPath), { recursive: true });
-      await fs.writeFile(destinationPath, tarBytes.subarray(contentStart, contentEnd));
-      extracted = true;
-    }
-
-    const alignedSize = Math.ceil(entrySize / 512) * 512;
-    offset = contentStart + alignedSize;
-  }
-
-  if (!extracted) {
-    throw new Error(`archive ${archiveName} does not contain ${binaryName}`);
-  }
-}
-
-async function installReleaseBinary({ version, stateDir, logger }) {
+async function installReleaseBinary({ version, stateDir, logger, releaseBaseUrl, fetchImpl }) {
   const platform = resolvePlatform();
   if (!platform?.supported) {
     throw new Error("powd install is not available on this platform yet");
@@ -109,14 +42,14 @@ async function installReleaseBinary({ version, stateDir, logger }) {
   const tempRoot = await fs.mkdtemp(path.join(managedPaths.rootDir, "download-"));
 
   try {
-    const release = buildReleaseSpec({ version, platform });
+    const release = buildReleaseSpec({ version, platform, baseUrlOverride: releaseBaseUrl });
     const archivePath = path.join(tempRoot, release.archiveName);
     const sha256Path = path.join(tempRoot, release.sha256Name);
     const extractDir = path.join(tempRoot, "extract");
 
     log(logger, "info", `powd-plugin: downloading ${release.archiveUrl}`);
-    await downloadFile(release.archiveUrl, archivePath);
-    await downloadFile(release.sha256Url, sha256Path);
+    await downloadFile(release.archiveUrl, archivePath, { fetchImpl });
+    await downloadFile(release.sha256Url, sha256Path, { fetchImpl });
 
     const expectedSha256 = parseSha256Text(await fs.readFile(sha256Path, "utf8"));
     const actualSha256 = await sha256File(archivePath);
@@ -183,7 +116,15 @@ function buildInstallMessage(params) {
   return lines.join("\n");
 }
 
-export async function installPowd({ version, stateDir, configApi, logger }) {
+export async function installPowd({
+  version,
+  stateDir,
+  configApi,
+  logger,
+  releaseBaseUrl,
+  releaseApiBaseUrl,
+  fetchImpl,
+}) {
   const currentConfig = await Promise.resolve(configApi.loadConfig());
   const initialStatus = await collectSetupStatus({
     stateDir,
@@ -204,11 +145,20 @@ export async function installPowd({ version, stateDir, configApi, logger }) {
   if (typeof version === "string" && version.trim()) {
     targetVersion = normalizeVersion(version);
   } else if (!initialStatus.installed || !initialStatus.version) {
-    targetVersion = await resolveLatestStableVersion();
+    targetVersion = await resolveLatestStableVersion({
+      apiBaseOverride: releaseApiBaseUrl,
+      fetchImpl,
+    });
   }
 
   if (targetVersion && (!initialStatus.installed || initialStatus.version !== targetVersion)) {
-    await installReleaseBinary({ version: targetVersion, stateDir, logger });
+    await installReleaseBinary({
+      version: targetVersion,
+      stateDir,
+      logger,
+      releaseBaseUrl,
+      fetchImpl,
+    });
     downloaded = true;
   }
 
