@@ -364,9 +364,8 @@ fn verify_peer_credentials(stream: &UnixStream) -> Result<()> {
         let expected_uid = unsafe { libc::geteuid() };
         if ucred.uid != expected_uid {
             anyhow::bail!(
-                "reject peer uid {} on local api socket; expected {}",
-                ucred.uid,
-                expected_uid
+                "reject peer uid {} on local api socket; expected {expected_uid}",
+                ucred.uid
             );
         }
     }
@@ -385,9 +384,7 @@ fn verify_peer_credentials(stream: &UnixStream) -> Result<()> {
         let expected_uid = unsafe { libc::geteuid() };
         if peer_euid != expected_uid {
             anyhow::bail!(
-                "reject peer uid {} on local api socket; expected {}",
-                peer_euid,
-                expected_uid
+                "reject peer uid {peer_euid} on local api socket; expected {expected_uid}"
             );
         }
     }

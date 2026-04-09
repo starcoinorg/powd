@@ -1,13 +1,16 @@
 use super::{MinerConfig, MinerEvent, MinerSnapshot, Priority};
 use crate::miner::state::RuntimeState;
-use anyhow::Context;
 use starcoin_logger::prelude::*;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, watch};
 use tokio_util::sync::CancellationToken;
 
+#[cfg(target_os = "linux")]
+use anyhow::Context;
+
 const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(15);
 const MIN_KEEPALIVE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(target_os = "linux")]
 const DEFAULT_LINUX_BACKGROUND_NICE: i32 = 10;
 
 pub(super) fn next_reconnect_delay(current: Duration) -> Duration {
