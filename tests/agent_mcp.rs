@@ -341,18 +341,26 @@ async fn agent_mcp_tool_metadata_guides_confirmation_and_routing() -> Result<()>
     );
     assert_eq!(
         miner_set_mode["inputSchema"]["examples"][3],
+        json!({ "mode": "aggressive" })
+    );
+    assert_eq!(
+        miner_set_mode["inputSchema"]["examples"][4],
         json!({ "mode": "auto" })
     );
     let mode_desc = miner_set_mode["inputSchema"]["properties"]["mode"]["description"]
         .as_str()
         .context("mode description should be a string")?;
     assert!(mode_desc.contains("auto = let the daemon choose"));
+    assert!(mode_desc.contains("保守一点"));
+    assert!(mode_desc.contains("最低"));
     assert!(mode_desc.contains("balanced = normal everyday mining"));
     assert!(mode_desc.contains("aggressive = highest local CPU budget"));
     let miner_set_mode_desc = description(miner_set_mode)?;
     assert!(miner_set_mode_desc.contains("prefer miner_pause or miner_stop"));
     assert!(miner_set_mode_desc.contains("prefer miner_status"));
     assert!(miner_set_mode_desc.contains("调低一点"));
+    assert!(miner_set_mode_desc.contains("保守一点"));
+    assert!(miner_set_mode_desc.contains("最低"));
     assert!(miner_set_mode_desc.contains("更激进"));
 
     let routing_cases = [

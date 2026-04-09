@@ -462,9 +462,11 @@ fn tool_specs(protocol_version: McpProtocolVersion) -> Vec<ToolSpec> {
             title: tool_title(protocol_version, "Set Miner Mode"),
             description: concat!(
                 "Use this when the user wants mining to continue but at a different intensity, with wording like ",
-                "\"make mining less aggressive\", \"调低一点\", \"安静点\", \"省电点\", or \"更激进\". ",
+                "\"make mining less aggressive\", \"调低一点\", \"保守一点\", \"安静点\", \"省电点\", or \"更激进\". ",
                 "Do not use this when the user wants to stop mining or only inspect the current mode. ",
                 "Prefer miner_pause or miner_stop when the user wants mining to stop, and prefer miner_status when the user only wants to inspect the current mode. ",
+                "When choosing a lower mode, prefer conservative for wording like \"保守一点\", \"稳一点\", or \"调低一点但继续挖\". ",
+                "Prefer idle for wording like \"最低\", \"最小\", \"几乎不占资源\", or \"最低后台占用\". ",
                 "Confirm before calling because it changes ongoing CPU budget selection."
             ),
             input_schema: mode_schema(),
@@ -511,12 +513,13 @@ fn mode_schema() -> Value {
             json!({
                 "type": "string",
                 "enum": ["auto", "conservative", "idle", "balanced", "aggressive"],
-                "description": "Requested mining intensity. auto = let the daemon choose a safe budget tier. conservative = lower sustained CPU usage. idle = minimal background work. balanced = normal everyday mining. aggressive = highest local CPU budget. Use this to tune intensity without stopping mining.",
+                "description": "Requested mining intensity. auto = let the daemon choose a safe budget tier. conservative = lower sustained CPU usage while still actively mining; prefer this for requests like \"保守一点\", \"稳一点\", or \"调低一点\". idle = the minimum background work and lowest local usage; prefer this for requests like \"最低\", \"最小\", \"几乎不占资源\", or \"最低后台占用\". balanced = normal everyday mining. aggressive = highest local CPU budget. Use this to tune intensity without stopping mining.",
             }),
         )]),
         vec![
             json!({ "mode": "balanced" }),
             json!({ "mode": "conservative" }),
+            json!({ "mode": "idle" }),
             json!({ "mode": "aggressive" }),
             json!({ "mode": "auto" }),
         ],
