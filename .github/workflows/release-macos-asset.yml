@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing powd release tag to build and upload the macOS asset for, for example v1.0.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -19,6 +24,8 @@ jobs:
       OPENSSL_NO_VENDOR: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Install macOS build dependencies
         run: |
@@ -36,12 +43,14 @@ jobs:
 
       - name: Package macOS Apple Silicon asset
         id: package
+        env:
+          TARGET_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
           test -n "$version"
           tag="v$version"
-          if [ "$tag" != "${GITHUB_REF_NAME}" ]; then
-            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}" >&2
+          if [ "$tag" != "${TARGET_TAG}" ]; then
+            echo "tag ${TARGET_TAG} does not match Cargo.toml version ${version}" >&2
             exit 1
           fi
           output_dir="$RUNNER_TEMP/release-assets"
@@ -49,8 +58,10 @@ jobs:
           echo "archive_path=$archive_path" >> "$GITHUB_OUTPUT"
 
       - name: Ensure release exists
+        env:
+          TARGET_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          tag="${GITHUB_REF_NAME}"
+          tag="${TARGET_TAG}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             exit 0
           fi
@@ -66,9 +77,11 @@ jobs:
             ${prerelease_flag}
 
       - name: Upload macOS Apple Silicon asset
+        env:
+          TARGET_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           archive_path="${{ steps.package.outputs.archive_path }}"
-          gh release upload "${GITHUB_REF_NAME}" \
+          gh release upload "${TARGET_TAG}" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber \
             "$archive_path" \
