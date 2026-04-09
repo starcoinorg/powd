@@ -1,6 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
 import { buildReleaseSpec, parseSha256Text, resolveLatestStableVersion } from "../src/releases.js";
+
+async function withLatestReleaseServer(handler) {
+  const server = http.createServer((req, res) => {
+    const requestPath = new URL(req.url, "http://127.0.0.1").pathname;
+    if (requestPath === "/api/releases/latest") {
+      res.writeHead(302, { location: "/mirror/latest" });
+      res.end();
+      return;
+    }
+    if (requestPath === "/mirror/latest") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ tag_name: "v1.2.3" }));
+      return;
+    }
+    res.writeHead(404);
+    res.end("not found");
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+
+  try {
+    await handler(`http://127.0.0.1:${port}/api/releases`);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+}
 
 test("buildReleaseSpec matches the published powd asset contract", () => {
   const spec = buildReleaseSpec({
@@ -77,19 +106,11 @@ test("buildReleaseSpec accepts versions with a leading v", () => {
 });
 
 test("resolveLatestStableVersion returns the normalized tag name from the GitHub releases API", async () => {
-  const version = await resolveLatestStableVersion({
-    apiBaseOverride: "https://example.com/api/releases",
-    fetchImpl: async (url, options) => {
-      assert.equal(url, "https://example.com/api/releases/latest");
-      assert.equal(options.headers.accept, "application/vnd.github+json");
-      return {
-        ok: true,
-        async json() {
-          return { tag_name: "v1.2.3" };
-        },
-      };
-    },
-  });
+  await withLatestReleaseServer(async (apiBase) => {
+    const version = await resolveLatestStableVersion({
+      apiBaseOverride: apiBase,
+    });
 
-  assert.equal(version, "1.2.3");
+    assert.equal(version, "1.2.3");
+  });
 });

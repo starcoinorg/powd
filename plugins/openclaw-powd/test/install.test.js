@@ -106,6 +106,38 @@ async function withHttpServer(rootDir, fn) {
   }
 }
 
+async function withRedirectingReleaseServer(rootDir, fn) {
+  const server = http.createServer(async (req, res) => {
+    const requestPath = new URL(req.url, "http://127.0.0.1").pathname;
+    if (requestPath.startsWith("/releases/download/")) {
+      res.writeHead(302, { location: `/cdn${requestPath}` });
+      res.end();
+      return;
+    }
+
+    const normalizedPath = requestPath.startsWith("/cdn/") ? requestPath.slice(4) : requestPath;
+    const filePath = path.join(rootDir, normalizedPath.replace(/^\/+/, ""));
+    try {
+      const data = await fs.readFile(filePath);
+      res.writeHead(200);
+      res.end(data);
+    } catch {
+      res.writeHead(404);
+      res.end("not found");
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+
+  try {
+    await fn(`http://127.0.0.1:${port}/releases/download`);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+}
+
 function createConfigApi(initialConfig = {}) {
   let current = structuredClone(initialConfig);
   return {
@@ -152,6 +184,32 @@ test("installPowd downloads the latest stable release when no version is pinned"
       const metadataRaw = await fs.readFile(path.join(tempRoot, "state", "plugins", "powd", "install.json"), "utf8");
       const metadata = JSON.parse(metadataRaw);
       assert.equal(metadata.version, version);
+    });
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("installPowd follows redirected release asset downloads", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "powd-plugin-test-"));
+  try {
+    const version = "1.2.3";
+    await createReleaseFixture(tempRoot, version);
+
+    await withRedirectingReleaseServer(tempRoot, async (baseUrl) => {
+      const configApi = createConfigApi({});
+
+      const result = await installPowd({
+        version,
+        stateDir: path.join(tempRoot, "state"),
+        configApi,
+        releaseBaseUrl: baseUrl,
+      });
+
+      assert.equal(result.ok, true);
+      assert.equal(result.status.installed, true);
+      assert.equal(result.status.registered, true);
+      assert.equal(result.status.version, version);
     });
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });

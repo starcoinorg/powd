@@ -3,6 +3,7 @@ import {
   POWD_RELEASE_REPO_BASE,
   normalizeVersion,
 } from "./constants.js";
+import { requestJson } from "./download.js";
 
 function stripTrailingSlash(value) {
   return value.endsWith("/") ? value.slice(0, -1) : value;
@@ -10,20 +11,15 @@ function stripTrailingSlash(value) {
 
 export async function resolveLatestStableVersion({
   apiBaseOverride,
-  fetchImpl = fetch,
+  fetchImpl,
 } = {}) {
   const apiBase = stripTrailingSlash(apiBaseOverride?.trim() || POWD_RELEASE_API_BASE);
-  const response = await fetchImpl(`${apiBase}/latest`, {
+  const payload = await requestJson(`${apiBase}/latest`, {
+    fetchImpl,
     headers: {
       accept: "application/vnd.github+json",
     },
   });
-
-  if (!response.ok) {
-    throw new Error(`failed to resolve latest powd release (${response.status} ${response.statusText})`);
-  }
-
-  const payload = await response.json();
   const tagName = typeof payload?.tag_name === "string" ? payload.tag_name : "";
   if (!tagName.trim()) {
     throw new Error("failed to resolve latest powd release version");

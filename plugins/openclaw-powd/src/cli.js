@@ -21,21 +21,21 @@ export function registerPowdCli({ program, runInstall, runStatus }) {
   powd
     .command("status")
     .description("Show whether powd is installed and registered")
-    .option("--version <version>", "compare the current install against a specific powd release")
+    .argument("[version]", "compare the current install against a specific powd release")
     .option("--json", "print JSON")
-    .action(async (options) => {
-      const result = await runStatus(options.version);
+    .action(async (version, options) => {
+      const result = await runStatus(version);
       printResult(result, Boolean(options.json));
     });
 
   powd
     .command("install")
     .description("Install powd from GitHub Releases and register it with OpenClaw")
-    .option("--version <version>", "install a specific powd release instead of the latest stable one")
+    .argument("[version]", "install a specific powd release instead of the latest stable one")
     .option("--replace", "stop the current local powd daemon and replace the installed binary")
     .option("--json", "print JSON")
-    .action(async (options) => {
-      const result = await runInstall(options.version, Boolean(options.replace));
+    .action(async (version, options) => {
+      const result = await runInstall(version, Boolean(options.replace));
       printResult(result, Boolean(options.json));
     });
 }
