@@ -118,7 +118,7 @@ enum MinerCliCommand {
     Resume,
     #[command(
         about = "Set the miner mode",
-        after_help = "Mode semantics:\n  auto         daemon adjusts threads and cpu_percent from system CPU and memory usage\n               auto starts from a conservative budget and never raises above the balanced ceiling by default\n  conservative fixed preset: threads=1, cpu_percent=50, priority=background\n  idle         fixed preset: threads=ceil(logical_cpus/4), cpu_percent=15, priority=background\n  balanced     fixed preset: threads=ceil(logical_cpus/2), cpu_percent=40, priority=background\n  aggressive   fixed preset: threads=ceil(logical_cpus/2), cpu_percent=80, priority=background"
+        after_help = "Mode semantics:\n  auto         daemon adjusts threads and cpu_percent from system CPU and memory usage\n               auto starts from the idle preset and never raises above the balanced ceiling by default\n  idle         fixed preset: threads=1, cpu_percent=50, priority=background\n               lowest overall mining budget while still actively mining\n  light        fixed preset: threads=ceil(logical_cpus/4), cpu_percent=15, priority=background\n               light background mining on a few threads\n  balanced     fixed preset: threads=ceil(logical_cpus/2), cpu_percent=40, priority=background\n  aggressive   fixed preset: threads=ceil(logical_cpus/2), cpu_percent=80, priority=background"
     )]
     SetMode {
         #[arg(value_enum, help = "Mode to apply")]
@@ -154,8 +154,8 @@ enum McpCliCommand {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliBudgetMode {
     Auto,
-    Conservative,
     Idle,
+    Light,
     Balanced,
     Aggressive,
 }
@@ -366,8 +366,8 @@ fn map_wallet_error(err: WalletAgentError, json: bool) -> CliError {
 fn map_budget_mode(mode: CliBudgetMode) -> BudgetMode {
     match mode {
         CliBudgetMode::Auto => BudgetMode::Auto,
-        CliBudgetMode::Conservative => BudgetMode::Conservative,
         CliBudgetMode::Idle => BudgetMode::Idle,
+        CliBudgetMode::Light => BudgetMode::Light,
         CliBudgetMode::Balanced => BudgetMode::Balanced,
         CliBudgetMode::Aggressive => BudgetMode::Aggressive,
     }

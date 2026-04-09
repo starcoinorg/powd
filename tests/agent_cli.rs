@@ -290,11 +290,11 @@ async fn agent_cli_help_shows_wallet_miner_doctor_and_mcp_mode() -> Result<()> {
     assert!(set_mode_help.status.success());
     let set_mode_stdout =
         String::from_utf8(set_mode_help.stdout).context("decode set-mode help failed")?;
-    assert!(
-        set_mode_stdout.contains("possible values: auto, conservative, idle, balanced, aggressive")
-    );
+    assert!(set_mode_stdout.contains("possible values: auto, idle, light, balanced, aggressive"));
     assert!(set_mode_stdout.contains("daemon adjusts threads and cpu_percent"));
-    assert!(set_mode_stdout.contains("conservative fixed preset"));
+    assert!(set_mode_stdout.contains("idle         fixed preset: threads=1, cpu_percent=50"));
+    assert!(set_mode_stdout
+        .contains("light        fixed preset: threads=ceil(logical_cpus/4), cpu_percent=15"));
 
     let daemon_help = Command::new(resolve_powd_bin()?)
         .arg("--help")
@@ -373,13 +373,9 @@ async fn agent_cli_lifecycle_and_set_mode_work() -> Result<()> {
     ));
     assert_eq!(resumed["requested_mode"], "auto");
 
-    let manual = run_ctl_with_env_json(
-        agent.socket_path(),
-        &envs,
-        &["miner", "set-mode", "conservative"],
-    )
-    .await?;
-    assert_eq!(manual["requested_mode"], "conservative");
+    let manual =
+        run_ctl_with_env_json(agent.socket_path(), &envs, &["miner", "set-mode", "idle"]).await?;
+    assert_eq!(manual["requested_mode"], "idle");
     assert_eq!(manual["auto_state"], "inactive");
     assert_eq!(manual["effective_budget"]["threads"], 1);
     assert_eq!(manual["effective_budget"]["cpu_percent"], 50);
@@ -420,8 +416,9 @@ async fn agent_cli_rejects_invalid_arguments() -> Result<()> {
     assert_eq!(invalid_mode.status.code(), Some(2));
     let invalid_mode_stderr = String::from_utf8_lossy(&invalid_mode.stderr);
     assert!(invalid_mode_stderr.contains("invalid value 'paused'"));
-    assert!(invalid_mode_stderr
-        .contains("possible values: auto, conservative, idle, balanced, aggressive"));
+    assert!(
+        invalid_mode_stderr.contains("possible values: auto, idle, light, balanced, aggressive")
+    );
 
     let watch_json = run_ctl(&socket_path, &["miner", "watch"], true).await?;
     assert_eq!(watch_json.status.code(), Some(2));

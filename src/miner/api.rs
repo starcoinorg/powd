@@ -15,8 +15,8 @@ pub enum Priority {
 #[serde(rename_all = "snake_case")]
 pub enum BudgetMode {
     Auto,
-    Conservative,
     Idle,
+    Light,
     Balanced,
     Aggressive,
 }
@@ -302,8 +302,8 @@ pub fn default_miner_capabilities(max_threads: u16) -> MinerCapabilities {
         max_threads,
         supported_modes: vec![
             BudgetMode::Auto,
-            BudgetMode::Conservative,
             BudgetMode::Idle,
+            BudgetMode::Light,
             BudgetMode::Balanced,
             BudgetMode::Aggressive,
         ],
@@ -336,12 +336,12 @@ pub fn default_budget_for_mode(mode: BudgetMode, max_threads: u16, logical_cpus:
     let logical_cpus = logical_cpus.max(1);
     let limit = usize::from(max_threads.max(1));
     match mode {
-        BudgetMode::Auto | BudgetMode::Conservative => Budget {
+        BudgetMode::Auto | BudgetMode::Idle => Budget {
             threads: 1.min(limit) as u16,
             cpu_percent: 50,
             priority: Priority::Background,
         },
-        BudgetMode::Idle => Budget {
+        BudgetMode::Light => Budget {
             threads: logical_cpus.div_ceil(4).max(1).min(limit) as u16,
             cpu_percent: 15,
             priority: Priority::Background,

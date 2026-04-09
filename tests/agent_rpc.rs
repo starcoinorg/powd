@@ -32,7 +32,7 @@ async fn agent_rpc_reports_capabilities_methods_and_initial_auto_status() -> Res
     assert_eq!(caps["supported_priorities"], json!(["background"]));
     assert_eq!(
         caps["supported_modes"],
-        json!(["auto", "conservative", "idle", "balanced", "aggressive"])
+        json!(["auto", "idle", "light", "balanced", "aggressive"])
     );
 
     let methods = rpc.call_value("status.methods", None, RPC_TIMEOUT).await?;
@@ -43,7 +43,7 @@ async fn agent_rpc_reports_capabilities_methods_and_initial_auto_status() -> Res
     );
     assert_eq!(
         methods["methods"]["miner.set_mode"]["params"]["fields"]["mode"]["enum_values"],
-        json!(["auto", "conservative", "idle", "balanced", "aggressive"])
+        json!(["auto", "idle", "light", "balanced", "aggressive"])
     );
     assert_eq!(
         methods["methods"]["daemon.configure"]["params"]["fields"]["network"]["enum_values"],
@@ -106,17 +106,13 @@ async fn agent_rpc_lifecycle_mode_and_events_work() -> Result<()> {
     assert_eq!(running_again["requested_mode"], "auto");
     assert_eq!(running_again["auto_state"], "active");
 
-    let conservative = ctl
-        .call_value(
-            "miner.set_mode",
-            Some(json!({"mode": "conservative"})),
-            RPC_TIMEOUT,
-        )
+    let idle = ctl
+        .call_value("miner.set_mode", Some(json!({"mode": "idle"})), RPC_TIMEOUT)
         .await?;
-    assert_eq!(conservative["requested_mode"], "conservative");
-    assert_eq!(conservative["auto_state"], "inactive");
-    assert_eq!(conservative["effective_budget"]["threads"], 1);
-    assert_eq!(conservative["effective_budget"]["cpu_percent"], 50);
+    assert_eq!(idle["requested_mode"], "idle");
+    assert_eq!(idle["auto_state"], "inactive");
+    assert_eq!(idle["effective_budget"]["threads"], 1);
+    assert_eq!(idle["effective_budget"]["cpu_percent"], 50);
 
     let auto = ctl
         .call_value("miner.set_mode", Some(json!({"mode": "auto"})), RPC_TIMEOUT)

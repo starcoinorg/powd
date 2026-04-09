@@ -62,7 +62,7 @@ OpenClaw 集成的整体理由见 [powd-openclaw-integration.zh.md](powd-opencla
 - `powd miner stop`
 - `powd miner pause`
 - `powd miner resume`
-- `powd miner set-mode <auto|conservative|idle|balanced|aggressive>`
+- `powd miner set-mode <auto|idle|light|balanced|aggressive>`
 - `powd miner watch`
 
 mode 语义：
@@ -71,7 +71,7 @@ mode 语义：
   - 保持 `requested_mode = auto`
   - 让 daemon 内部计算更细粒度的 `effective_budget`
   - 不公开 governor 内部调节旋钮
-- `conservative|idle|balanced|aggressive`
+- `idle|light|balanced|aggressive`
   - 面向用户的固定 preset
   - 每个 preset 都映射到固定的 `effective_budget`
 

@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use std::io;
 use std::path::Path;
-use tokio::io::{ReadHalf, WriteHalf};
 #[cfg(windows)]
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{ReadHalf, WriteHalf};
 
 #[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};

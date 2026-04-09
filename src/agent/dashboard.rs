@@ -115,15 +115,15 @@ async fn handle_key(
         ),
         KeyCode::Char('1') => Some(
             agent
-                .set_mode(BudgetMode::Conservative)
-                .await
-                .map(|_| "mode -> conservative".to_string()),
-        ),
-        KeyCode::Char('2') => Some(
-            agent
                 .set_mode(BudgetMode::Idle)
                 .await
                 .map(|_| "mode -> idle".to_string()),
+        ),
+        KeyCode::Char('2') => Some(
+            agent
+                .set_mode(BudgetMode::Light)
+                .await
+                .map(|_| "mode -> light".to_string()),
         ),
         KeyCode::Char('3') => Some(
             agent
@@ -226,7 +226,7 @@ fn render_header() -> Paragraph<'static> {
             Style::default().fg(Color::White),
         )]),
         Line::from(vec![Span::styled(
-            "a auto | 1 conservative | 2 idle | 3 balanced | 4 aggressive",
+            "a auto | 1 idle | 2 light | 3 balanced | 4 aggressive",
             Style::default().fg(Color::White),
         )]),
     ])
@@ -512,8 +512,8 @@ fn bool_style(value: bool) -> Style {
 fn mode_style(mode: crate::BudgetMode) -> Style {
     match mode {
         BudgetMode::Auto => Style::default().fg(Color::Cyan),
-        BudgetMode::Conservative => Style::default().fg(Color::LightBlue),
         BudgetMode::Idle => Style::default().fg(Color::Blue),
+        BudgetMode::Light => Style::default().fg(Color::LightBlue),
         BudgetMode::Balanced => Style::default().fg(Color::Yellow),
         BudgetMode::Aggressive => Style::default().fg(Color::Red),
     }

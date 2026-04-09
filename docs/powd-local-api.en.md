@@ -62,7 +62,7 @@ Semantics:
 - `powd miner stop`
 - `powd miner pause`
 - `powd miner resume`
-- `powd miner set-mode <auto|conservative|idle|balanced|aggressive>`
+- `powd miner set-mode <auto|idle|light|balanced|aggressive>`
 - `powd miner watch`
 
 Mode semantics:
@@ -71,7 +71,7 @@ Mode semantics:
   - keeps `requested_mode = auto`
   - lets the daemon compute a finer-grained `effective_budget`
   - does not expose internal governor knobs publicly
-- `conservative|idle|balanced|aggressive`
+- `idle|light|balanced|aggressive`
   - fixed user-facing presets
   - each maps to a fixed `effective_budget`
 

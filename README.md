@@ -10,7 +10,7 @@ You do not need to install or register the binary by hand. The normal path is: i
 - check mining status
 - check wallet rewards
 - start, pause, resume, or stop mining
-- switch between `auto`, `conservative`, `idle`, `balanced`, and `aggressive`
+- switch between `auto`, `idle`, `light`, `balanced`, and `aggressive`
 
 ## Quick Start
 
