@@ -16,18 +16,18 @@ usage() {
   cat <<'EOF'
 usage: scripts/release.sh [--repo owner/name] [--remote origin] [--tag vX.Y.Z] [--title "title"] [--notes "text"] [--notes-file path] [--generate-notes] [--output-dir path] [--dry-run]
 
-Build the powd release assets and upload them to a GitHub Release.
+Build the powd binary release assets and upload them to a GitHub Release.
+
+This script publishes only the powd binary assets.
+OpenClaw plugin publishing is handled separately by scripts/clawhub-release.sh.
 
 Default behavior:
   - read the version from Cargo.toml
-  - require plugins/openclaw-powd/package.json to use the same version
   - ensure tag v<version> exists on the current commit and push it to origin
   - build target/release/powd
   - generate:
       powd-v<version>-linux-x86_64.tar.gz
       powd-v<version>-linux-x86_64.tar.gz.sha256
-      starcoinorg-openclaw-powd-<version>.tgz
-      starcoinorg-openclaw-powd-<version>.tgz.sha256
   - create the GitHub Release if it does not already exist
   - generate GitHub-style release title and notes by default
   - let --notes / --notes-file override the default notes body
@@ -101,28 +101,13 @@ require_cmd() {
 require_cmd cargo
 require_cmd gh
 require_cmd git
-require_cmd npm
 require_cmd sha256sum
 require_cmd tar
-if [ "$generate_notes" -eq 1 ]; then
-  require_cmd jq
-fi
 
 cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo_root/Cargo.toml" | head -n 1)"
-plugin_version="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$repo_root/plugins/openclaw-powd/package.json" | head -n 1)"
 
 if [ -z "$cargo_version" ]; then
   echo "failed to resolve Cargo version from $repo_root/Cargo.toml" >&2
-  exit 1
-fi
-
-if [ -z "$plugin_version" ]; then
-  echo "failed to resolve plugin version from $repo_root/plugins/openclaw-powd/package.json" >&2
-  exit 1
-fi
-
-if [ "$cargo_version" != "$plugin_version" ]; then
-  echo "version mismatch: Cargo.toml=$cargo_version, openclaw-powd package.json=$plugin_version" >&2
   exit 1
 fi
 
@@ -138,6 +123,10 @@ fi
 
 if [ -z "$notes" ] && [ -z "$notes_file" ]; then
   generate_notes=1
+fi
+
+if [ "$generate_notes" -eq 1 ]; then
+  require_cmd jq
 fi
 
 version="$cargo_version"
@@ -177,10 +166,12 @@ cleanup() {
 trap cleanup EXIT
 
 powd_binary="$repo_root/target/release/powd"
-plugin_dir="$repo_root/plugins/openclaw-powd"
 head_commit="$(git -C "$repo_root" rev-parse HEAD)"
 local_tag_commit="$(git -C "$repo_root" rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null || true)"
-remote_tag_commit="$(git -C "$repo_root" ls-remote --tags "$remote" "refs/tags/$tag" | awk '{print $1}' | head -n 1)"
+remote_tag_commit=""
+if [ "$dry_run" -eq 0 ]; then
+  remote_tag_commit="$(git -C "$repo_root" ls-remote --tags "$remote" "refs/tags/$tag" | awk '{print $1}' | head -n 1)"
+fi
 
 if [ -n "$local_tag_commit" ] && [ "$local_tag_commit" != "$head_commit" ]; then
   echo "local tag $tag exists but does not point to HEAD ($local_tag_commit != $head_commit)" >&2
@@ -199,20 +190,9 @@ echo "==> packaging powd release archive"
 powd_archive_path="$("$repo_root/scripts/pack-release.sh" "$powd_binary" "$version" "$output_dir")"
 powd_sha_path="${powd_archive_path}.sha256"
 
-echo "==> packing OpenClaw plugin"
-plugin_pack_name="$(cd "$plugin_dir" && npm pack --silent)"
-plugin_pack_source="$plugin_dir/$plugin_pack_name"
-plugin_pack_path="$output_dir/$plugin_pack_name"
-mv -f "$plugin_pack_source" "$plugin_pack_path"
-plugin_sha_path="${plugin_pack_path}.sha256"
-plugin_pack_basename="$(basename "$plugin_pack_path")"
-sha256sum "$plugin_pack_path" | awk '{print $1 "  " "'"$plugin_pack_basename"'"}' >"$plugin_sha_path"
-
 assets=(
   "$powd_archive_path"
   "$powd_sha_path"
-  "$plugin_pack_path"
-  "$plugin_sha_path"
 )
 
 echo "==> assets ready"
