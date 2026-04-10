@@ -497,7 +497,7 @@ async function main() {
             "config",
             "set",
             "plugins.entries.powd.config.releaseBaseUrl",
-            JSON.stringify(releaseBaseUrl),
+            releaseBaseUrl,
           ],
           { timeoutMs: 60_000 },
         );
@@ -506,7 +506,7 @@ async function main() {
             "config",
             "set",
             "plugins.entries.powd.config.releaseApiBaseUrl",
-            JSON.stringify(releaseApiBaseUrl),
+            releaseApiBaseUrl,
           ],
           { timeoutMs: 60_000 },
         );

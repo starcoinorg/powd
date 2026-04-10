@@ -68,8 +68,8 @@ For local smoke tests or mirrored releases, set plugin config under `plugins.ent
 Example:
 
 ```bash
-openclaw config set plugins.entries.powd.config.releaseBaseUrl '"http://127.0.0.1:<port>/releases/download"'
-openclaw config set plugins.entries.powd.config.releaseApiBaseUrl '"http://127.0.0.1:<port>/api/releases"'
+openclaw config set plugins.entries.powd.config.releaseBaseUrl http://127.0.0.1:<port>/releases/download
+openclaw config set plugins.entries.powd.config.releaseApiBaseUrl http://127.0.0.1:<port>/api/releases
 ```
 
 The plugin appends `/v<version>/<asset>` to `releaseBaseUrl`, and it requests `/latest` from `releaseApiBaseUrl`.
