@@ -2,8 +2,6 @@ name: Release Windows Asset
 
 on:
   push:
-    branches:
-      - master
     tags:
       - "v*"
   workflow_dispatch:
@@ -63,15 +61,6 @@ jobs:
           $outputDir = Join-Path $env:RUNNER_TEMP "release-assets"
           $archivePath = node scripts/pack-release.mjs "target/release/powd.exe" "$version" "windows-x86_64" "$outputDir"
           "archive_path=$archivePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
-      - name: Upload Windows x64 workflow artifact
-        if: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: powd-windows-x86_64-${{ github.sha }}
-          path: |
-            ${{ steps.package.outputs.archive_path }}
-            ${{ steps.package.outputs.archive_path }}.sha256
 
       - name: Ensure release exists
         if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}

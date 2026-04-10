@@ -10,9 +10,13 @@ function writeTarString(buffer, value, offset, length) {
 }
 
 function writeTarOctal(buffer, value, offset, length) {
-  const digits = Math.max(length - 2, 1);
-  const encoded = `${Math.trunc(value).toString(8).padStart(digits, "0")}\0 `;
-  buffer.write(encoded.slice(-length), offset, length, "ascii");
+  const digits = Math.max(length - 1, 1);
+  const octal = Math.trunc(value).toString(8);
+  if (octal.length > digits) {
+    throw new Error(`tar field overflow: ${value} does not fit in ${length} bytes`);
+  }
+  const encoded = `${octal.padStart(digits, "0")}\0`;
+  buffer.write(encoded, offset, length, "ascii");
 }
 
 function createTarHeader(name, size, mode = 0o755) {

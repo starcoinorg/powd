@@ -31,9 +31,13 @@ function writeTarString(buffer, value, offset, length) {
 }
 
 function writeTarOctal(buffer, value, offset, length) {
-  const digits = Math.max(length - 2, 1);
-  const encoded = `${Math.trunc(value).toString(8).padStart(digits, "0")}\0 `;
-  buffer.write(encoded.slice(-length), offset, length, "ascii");
+  const digits = Math.max(length - 1, 1);
+  const octal = Math.trunc(value).toString(8);
+  if (octal.length > digits) {
+    throw new Error(`tar field overflow: ${value} does not fit in ${length} bytes`);
+  }
+  const encoded = `${octal.padStart(digits, "0")}\0`;
+  buffer.write(encoded, offset, length, "ascii");
 }
 
 function createTarHeader(name, size, mode = 0o755) {
@@ -155,7 +159,7 @@ async function listMcpTools(server) {
   });
 
   let stderr = "";
-  let buffer = "";
+  let buffer = Buffer.alloc(0);
   const pending = new Map();
   let nextId = 1;
   const requestTimeoutMs = 15_000;
@@ -172,22 +176,36 @@ async function listMcpTools(server) {
   });
 
   child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
+    buffer = Buffer.concat([buffer, chunk]);
     for (;;) {
-      const newlineIndex = buffer.indexOf("\n");
-      if (newlineIndex === -1) {
+      const headerEnd = buffer.indexOf("\r\n\r\n");
+      if (headerEnd === -1) {
         break;
       }
-      const line = buffer.slice(0, newlineIndex).trim();
-      buffer = buffer.slice(newlineIndex + 1);
-      if (!line) {
-        continue;
+      const headerText = buffer.subarray(0, headerEnd).toString("utf8");
+      const contentLengthLine = headerText
+        .split("\r\n")
+        .find((line) => line.toLowerCase().startsWith("content-length:"));
+      if (!contentLengthLine) {
+        rejectAll(new Error(`missing Content-Length header in MCP response\n${headerText}`));
+        return;
       }
+      const contentLength = Number.parseInt(contentLengthLine.split(":")[1]?.trim() ?? "", 10);
+      if (!Number.isFinite(contentLength) || contentLength < 0) {
+        rejectAll(new Error(`invalid Content-Length header in MCP response\n${headerText}`));
+        return;
+      }
+      const frameLength = headerEnd + 4 + contentLength;
+      if (buffer.length < frameLength) {
+        break;
+      }
+      const payloadText = buffer.subarray(headerEnd + 4, frameLength).toString("utf8");
+      buffer = buffer.subarray(frameLength);
       let message;
       try {
-        message = JSON.parse(line);
+        message = JSON.parse(payloadText);
       } catch (error) {
-        rejectAll(new Error(`invalid MCP JSON line: ${line}\n${error}`));
+        rejectAll(new Error(`invalid MCP JSON payload: ${payloadText}\n${error}`));
         return;
       }
       if (message.id == null) {
@@ -237,7 +255,12 @@ async function listMcpTools(server) {
           reject(error);
         },
       });
-      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+      const payload = Buffer.from(
+        JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+        "utf8",
+      );
+      const header = Buffer.from(`Content-Length: ${payload.length}\r\n\r\n`, "utf8");
+      child.stdin.write(Buffer.concat([header, payload]));
     });
 
   try {
@@ -247,12 +270,19 @@ async function listMcpTools(server) {
       clientInfo: { name: "powd-plugin-smoke", version: "1.0.0" },
     });
     assert.equal(initialize.protocolVersion, "2025-11-25");
-    child.stdin.write(
-      `${JSON.stringify({
+    const notificationPayload = Buffer.from(
+      JSON.stringify({
         jsonrpc: "2.0",
         method: "notifications/initialized",
         params: {},
-      })}\n`,
+      }),
+      "utf8",
+    );
+    child.stdin.write(
+      Buffer.concat([
+        Buffer.from(`Content-Length: ${notificationPayload.length}\r\n\r\n`, "utf8"),
+        notificationPayload,
+      ]),
     );
     const tools = await request("tools/list", {});
     return tools.tools ?? [];
