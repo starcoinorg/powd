@@ -80,10 +80,26 @@ function resolveCommand(command) {
   return command;
 }
 
+function quoteCmdArg(value) {
+  if (!value) {
+    return "\"\"";
+  }
+  if (!/[\s"&()<>^|]/.test(value)) {
+    return value;
+  }
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
 async function runCommand(command, args, options = {}) {
   const resolvedCommand = resolveCommand(command);
+  const useCmdShell =
+    process.platform === "win32" && path.extname(resolvedCommand).toLowerCase() === ".cmd";
+  const spawnCommand = useCmdShell ? process.env.ComSpec ?? "cmd.exe" : resolvedCommand;
+  const spawnArgs = useCmdShell
+    ? ["/d", "/s", "/c", [resolvedCommand, ...args].map(quoteCmdArg).join(" ")]
+    : args;
   return await new Promise((resolve, reject) => {
-    const child = spawn(resolvedCommand, args, {
+    const child = spawn(spawnCommand, spawnArgs, {
       cwd: options.cwd ?? repoRoot,
       env: options.env ?? smokeEnv,
       stdio: ["ignore", "pipe", "pipe"],
@@ -101,7 +117,7 @@ async function runCommand(command, args, options = {}) {
             child.kill();
             reject(
               new Error(
-                `${resolvedCommand} ${args.join(" ")} timed out after ${timeoutMs}ms\n${stdout}${stderr}`.trim(),
+                `${spawnCommand} ${spawnArgs.join(" ")} timed out after ${timeoutMs}ms\n${stdout}${stderr}`.trim(),
               ),
             );
           }, timeoutMs)
@@ -133,7 +149,7 @@ async function runCommand(command, args, options = {}) {
       }
       reject(
         new Error(
-          `${resolvedCommand} ${args.join(" ")} failed with exit code ${code}\n${stdout}${stderr}`.trim(),
+          `${spawnCommand} ${spawnArgs.join(" ")} failed with exit code ${code}\n${stdout}${stderr}`.trim(),
         ),
       );
     });
