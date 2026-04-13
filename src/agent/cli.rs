@@ -134,8 +134,8 @@ enum MinerCliCommand {
 #[derive(Subcommand, Debug)]
 enum McpCliCommand {
     #[command(
-        about = "Print an OpenClaw MCP registration snippet for this machine",
-        after_help = "Paste the emitted JSON into the OpenClaw MCP registration workflow."
+        about = "Print an MCP registration snippet for this machine",
+        after_help = "Use the emitted JSON as a starting point for hosts that accept command, args, and env MCP configuration."
     )]
     Config {
         #[arg(
@@ -145,7 +145,7 @@ enum McpCliCommand {
         server_only: bool,
     },
     #[command(
-        about = "Run the stdio MCP server that OpenClaw launches",
+        about = "Run the stdio MCP server that MCP-capable hosts launch",
         after_help = "This is a host integration entrypoint. It is not a normal business command for daily manual use."
     )]
     Serve,
