@@ -203,6 +203,82 @@ async fn agent_mcp_lists_public_business_tools_and_handles_wallet_and_mode() -> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_mcp_accepts_json_line_stdio_for_claude_code() -> Result<()> {
+    let _guard = TEST_MUTEX.lock().await;
+
+    let state_path = temp_test_path("mcp-jsonl-state", "json");
+    let socket_path = temp_test_path("mcp-jsonl-socket", "sock");
+    let reward_api = FakeRewardApi::start_json(json!({
+        "account": "0x88888888888888888888888888888888",
+        "generated_at_millis": 123,
+        "window_secs": 300,
+        "online_threshold_secs": 120,
+        "summary": {
+            "active_workers": 0,
+            "total_workers": 0,
+            "hashrate_1m": 0.0,
+            "hashrate_window": 0.0,
+            "observed_hashrate_1m": 0.0,
+            "observed_hashrate_window": 0.0,
+            "assigned_hashrate_floor": 0.0,
+            "accepted_shares_1m": 0,
+            "accepted_shares_window": 0,
+            "miner_valid_shares_1m": 0,
+            "miner_valid_shares_window": 0,
+            "pending_submits": 0,
+            "confirmed_blocks_24h": 0,
+            "orphaned_blocks_24h": 0,
+            "confirmed_total": "0",
+            "paid_total": "0",
+            "confirmed_through_height": 1,
+            "estimated_pending_total": null,
+            "last_share_at_millis": null
+        },
+        "workers": []
+    }))
+    .await?;
+    let reward_api_base = reward_api.base_url();
+    let mut child = spawn_mcp(&state_path, &socket_path, &reward_api_base).await?;
+    let stdin = child.stdin.take().context("take mcp stdin failed")?;
+    let stdout = child.stdout.take().context("take mcp stdout failed")?;
+    let mut client = McpClient::new(stdin, stdout);
+
+    let initialize = client
+        .request_json_line(
+            1,
+            "initialize",
+            json!({
+                "protocolVersion": "2025-11-25",
+                "capabilities": {
+                    "roots": {},
+                    "elicitation": {}
+                },
+                "clientInfo": {
+                    "name": "claude-code",
+                    "version": "2.1.104"
+                }
+            }),
+        )
+        .await?;
+    assert_eq!(initialize["result"]["protocolVersion"], "2025-11-25");
+    assert_eq!(initialize["result"]["serverInfo"]["name"], "powd");
+
+    let tools = client.request_json_line(2, "tools/list", json!({})).await?;
+    let names = tools["result"]["tools"]
+        .as_array()
+        .context("tools list should be an array")?
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"miner_status"));
+    assert!(names.contains(&"wallet_set"));
+
+    let _ = child.kill().await;
+    let _ = std::fs::remove_file(state_path);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_mcp_tool_metadata_guides_confirmation_and_routing() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
@@ -561,19 +637,21 @@ impl McpClient {
     }
 
     async fn request(&mut self, id: u64, method: &str, params: Value) -> Result<Value> {
-        let payload = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params,
-        });
-        let encoded = serde_json::to_vec(&payload)?;
+        let encoded = encode_request(id, method, params)?;
         self.stdin
             .write_all(format!("Content-Length: {}\r\n\r\n", encoded.len()).as_bytes())
             .await?;
         self.stdin.write_all(&encoded).await?;
         self.stdin.flush().await?;
         self.read_response().await
+    }
+
+    async fn request_json_line(&mut self, id: u64, method: &str, params: Value) -> Result<Value> {
+        let encoded = encode_request(id, method, params)?;
+        self.stdin.write_all(&encoded).await?;
+        self.stdin.write_all(b"\n").await?;
+        self.stdin.flush().await?;
+        self.read_response_json_line().await
     }
 
     async fn read_response(&mut self) -> Result<Value> {
@@ -593,6 +671,22 @@ impl McpClient {
         self.stdout.read_exact(&mut payload).await?;
         serde_json::from_slice(&payload).context("parse MCP response failed")
     }
+
+    async fn read_response_json_line(&mut self) -> Result<Value> {
+        let mut line = String::new();
+        self.stdout.read_line(&mut line).await?;
+        serde_json::from_str(line.trim_end()).context("parse MCP JSONL response failed")
+    }
+}
+
+fn encode_request(id: u64, method: &str, params: Value) -> Result<Vec<u8>> {
+    serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": method,
+        "params": params,
+    }))
+    .context("encode MCP request failed")
 }
 
 fn tool_map(tools: &[Value]) -> BTreeMap<String, Value> {

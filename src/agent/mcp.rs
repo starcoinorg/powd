@@ -20,6 +20,7 @@ struct McpServer {
     reader: BufReader<Stdin>,
     writer: Stdout,
     protocol_version: McpProtocolVersion,
+    wire_format: McpWireFormat,
 }
 
 #[derive(Deserialize)]
@@ -121,6 +122,12 @@ enum McpProtocolVersion {
     V20241105,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum McpWireFormat {
+    HttpFramed,
+    JsonLines,
+}
+
 impl McpProtocolVersion {
     const SUPPORTED: [Self; 4] = [
         Self::V20251125,
@@ -170,6 +177,7 @@ impl McpServer {
             reader: BufReader::new(stdin),
             writer: stdout,
             protocol_version: MCP_PROTOCOL_VERSION_LATEST,
+            wire_format: McpWireFormat::HttpFramed,
         }
     }
 
@@ -289,6 +297,13 @@ impl McpServer {
             if bytes == 0 {
                 return Ok(None);
             }
+            if content_length.is_none() {
+                let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
+                if trimmed.starts_with('{') {
+                    self.wire_format = McpWireFormat::JsonLines;
+                    return Ok(Some(trimmed.as_bytes().to_vec()));
+                }
+            }
             if line == "\r\n" || line == "\n" {
                 break;
             }
@@ -296,6 +311,7 @@ impl McpServer {
                 content_length = value.trim().parse::<usize>().ok();
             }
         }
+        self.wire_format = McpWireFormat::HttpFramed;
         let length = content_length.ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidData, "missing Content-Length header")
         })?;
@@ -307,10 +323,18 @@ impl McpServer {
     async fn write_response<T: Serialize>(&mut self, response: &T) -> io::Result<()> {
         let payload = serde_json::to_vec(response)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-        self.writer
-            .write_all(format!("Content-Length: {}\r\n\r\n", payload.len()).as_bytes())
-            .await?;
-        self.writer.write_all(&payload).await?;
+        match self.wire_format {
+            McpWireFormat::HttpFramed => {
+                self.writer
+                    .write_all(format!("Content-Length: {}\r\n\r\n", payload.len()).as_bytes())
+                    .await?;
+                self.writer.write_all(&payload).await?;
+            }
+            McpWireFormat::JsonLines => {
+                self.writer.write_all(&payload).await?;
+                self.writer.write_all(b"\n").await?;
+            }
+        }
         self.writer.flush().await
     }
 }
