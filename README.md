@@ -20,6 +20,7 @@ For Codex, Claude Code, or any other generic MCP host, install the `powd` binary
 - Supported platforms today:
   - Linux x86_64
   - macOS Apple Silicon
+  - Windows x86_64
 - Place the `powd` binary somewhere on your `PATH`, then verify:
 
 ```bash
