@@ -1,6 +1,6 @@
 [package]
 name = "powd"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 authors = ["powd contributors"]
 license = "Apache-2.0"
