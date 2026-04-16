@@ -144,6 +144,61 @@ async fn agent_rpc_lifecycle_mode_and_events_work() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_rpc_reconnects_when_job_updates_stall() -> Result<()> {
+    let _guard = TEST_MUTEX.lock().await;
+
+    let pool = SilentKeepalivePool::start().await?;
+    let agent = AgentProcess::spawn_with_env(
+        &pool.pool_addr().to_string(),
+        "keccak",
+        &[("POWD_JOB_STALE_TIMEOUT_SECS", "2")],
+        &[],
+    )
+    .await?;
+    let mut ctl = RpcClient::connect(agent.socket_path(), RPC_TIMEOUT).await?;
+
+    let started = ctl.call_value("miner.start", None, RPC_TIMEOUT).await?;
+    assert!(matches!(
+        started["state"].as_str(),
+        Some("starting" | "running")
+    ));
+    let _ = wait_for_state(&mut ctl, "running").await?;
+
+    let stale = wait_for_status_match(&mut ctl, |status| {
+        status["reconnects"].as_u64().unwrap_or(0) >= 1
+            && status["last_error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("job update timeout after 2s")
+    })
+    .await?;
+    assert!(matches!(
+        stale["state"].as_str(),
+        Some("reconnecting" | "running")
+    ));
+
+    let events = ctl
+        .call_value("events.since", Some(json!({"since_seq": 0})), RPC_TIMEOUT)
+        .await?;
+    let reconnecting_seen = events["events"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .any(|event| event["event"]["type"] == "reconnecting");
+    assert!(
+        reconnecting_seen,
+        "expected reconnecting event after stale job timeout"
+    );
+
+    let recovered = wait_for_status_match(&mut ctl, |status| {
+        status["state"] == "running" && status["connected"] == true
+    })
+    .await?;
+    assert!(recovered["reconnects"].as_u64().unwrap_or(0) >= 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_rpc_rejects_invalid_requests() -> Result<()> {
     let _guard = TEST_MUTEX.lock().await;
 
@@ -213,6 +268,23 @@ async fn wait_for_event_type(events: &mut RpcClient, expected: &str) -> Result<V
         if event["method"] == "event" && event["params"]["type"] == expected {
             return Ok(event);
         }
+    }
+}
+
+async fn wait_for_status_match<F>(ctl: &mut RpcClient, predicate: F) -> Result<Value>
+where
+    F: Fn(&Value) -> bool,
+{
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let status = ctl.call_value("status.get", None, RPC_TIMEOUT).await?;
+        if predicate(&status) {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            return Err(anyhow::anyhow!("wait status predicate timeout"));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 

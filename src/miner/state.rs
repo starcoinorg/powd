@@ -22,6 +22,7 @@ pub(crate) struct RuntimeState {
     pub(crate) pending_keepalive_deadline: Option<tokio::time::Instant>,
     pub(crate) client: Option<StratumClient>,
     pub(crate) current_job: Option<MiningJob>,
+    pub(crate) current_job_received_at: Option<tokio::time::Instant>,
     pub(crate) reconnect_delay: Duration,
     pub(crate) last_status_at: Instant,
     pub(crate) last_status_hashes: u64,
@@ -91,6 +92,7 @@ impl RuntimeState {
             pending_keepalive_deadline: None,
             client: None,
             current_job: None,
+            current_job_received_at: None,
             reconnect_delay: super::runtime::RECONNECT_BASE_DELAY,
             last_status_at: started_at,
             last_status_hashes: 0,
@@ -113,6 +115,8 @@ impl RuntimeState {
         self.consecutive_rejected = 0;
         self.pending_keepalive_deadline = None;
         self.client = None;
+        self.current_job = None;
+        self.current_job_received_at = None;
     }
 
     pub(crate) fn queue_share(&mut self, share: SolvedShare) {
@@ -188,6 +192,28 @@ impl RuntimeState {
             return true;
         }
         false
+    }
+
+    pub(crate) fn handle_job_stale_timeout(&mut self, timeout: Duration) -> bool {
+        if self.current_job_received_at.is_some_and(|received_at| {
+            tokio::time::Instant::now().duration_since(received_at) >= timeout
+        }) {
+            self.reconnects = self.reconnects.saturating_add(1);
+            self.last_error = Some(format!("job update timeout after {}s", timeout.as_secs()));
+            self.mark_disconnected();
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn set_current_job(&mut self, job: MiningJob) {
+        self.current_job = Some(job);
+        self.current_job_received_at = Some(tokio::time::Instant::now());
+    }
+
+    pub(crate) fn job_stale_deadline(&self, timeout: Duration) -> Option<tokio::time::Instant> {
+        self.current_job_received_at
+            .map(|received_at| received_at + timeout)
     }
 
     pub(crate) fn refresh_hashrate(&mut self, total_hashes: u64) {

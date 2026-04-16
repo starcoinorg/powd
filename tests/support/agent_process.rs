@@ -18,6 +18,15 @@ pub struct AgentProcess {
 
 impl AgentProcess {
     pub async fn spawn(pool: &str, strategy: &str, extra: &[&str]) -> Result<Self> {
+        Self::spawn_with_env(pool, strategy, &[], extra).await
+    }
+
+    pub async fn spawn_with_env(
+        pool: &str,
+        strategy: &str,
+        envs: &[(&str, &str)],
+        extra: &[&str],
+    ) -> Result<Self> {
         let bin = resolve_powd_bin()?;
         let socket_path = temp_test_path("agent", "sock");
         let state_path = temp_test_path("agent", "json");
@@ -41,6 +50,9 @@ impl AgentProcess {
             .arg(&socket_path)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        for (key, value) in envs {
+            cmd.env(key, value);
+        }
         for arg in extra {
             cmd.arg(arg);
         }

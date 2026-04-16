@@ -127,6 +127,19 @@ impl WalletAgent {
         }
     }
 
+    pub async fn subscribe_events(&self) -> Result<AgentConnection, WalletAgentError> {
+        let profile = self
+            .load_profile_optional()?
+            .ok_or(WalletAgentError::NotConfigured)?;
+        let mut connection = self.ensure_daemon().await?;
+        self.configure_connection(&mut connection, &profile).await?;
+        connection
+            .subscribe_events(self.timeout)
+            .await
+            .map_err(WalletAgentError::Rpc)?;
+        Ok(connection)
+    }
+
     pub async fn events_since(
         &self,
         since_seq: u64,

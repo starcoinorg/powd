@@ -37,6 +37,12 @@ struct Cli {
     consensus_strategy: CliConsensusStrategy,
     #[arg(long, default_value_t = 30, help = "Keepalive interval in seconds")]
     keepalive_interval_secs: u64,
+    #[arg(
+        long,
+        default_value_t = 90,
+        help = "Reconnect if no new job arrives within this many seconds"
+    )]
+    job_stale_timeout_secs: u64,
     #[arg(long, default_value_t = 10, help = "Status log interval in seconds")]
     status_interval_secs: u64,
     #[arg(long, help = "Exit after this many accepted shares")]
@@ -65,6 +71,7 @@ async fn main() -> Result<()> {
         max_threads,
         strategy: cli.consensus_strategy.into(),
         keepalive_interval: Duration::from_secs(cli.keepalive_interval_secs),
+        job_stale_timeout: Duration::from_secs(cli.job_stale_timeout_secs),
         status_interval: Duration::from_secs(cli.status_interval_secs),
         exit_after_accepted: cli.exit_after_accepted,
     })?;

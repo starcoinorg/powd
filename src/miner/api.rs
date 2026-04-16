@@ -53,6 +53,7 @@ pub struct MinerConfig {
     pub max_threads: u16,
     pub strategy: ConsensusStrategy,
     pub keepalive_interval: Duration,
+    pub job_stale_timeout: Duration,
     pub status_interval: Duration,
     pub exit_after_accepted: Option<u64>,
 }

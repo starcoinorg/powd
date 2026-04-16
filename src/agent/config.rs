@@ -2,9 +2,9 @@ use crate::{
     default_budget_for_mode, Budget, BudgetMode, ConfigError, MinerConfig, MintNetwork,
     StratumLogin, WalletAddress, WorkerName,
 };
-use anyhow::Result;
 #[cfg(not(windows))]
 use anyhow::Context;
+use anyhow::Result;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use starcoin_types::genesis_config::ConsensusStrategy;
@@ -18,6 +18,7 @@ const DEFAULT_MAIN_REWARD_API: &str = "https://main-pool.starcoin.org";
 const DEFAULT_HALLEY_REWARD_API: &str = "https://halley-pool.starcoin.org";
 const DEFAULT_AGENT_NAME: &str = "powd";
 const DEFAULT_KEEPALIVE_INTERVAL_SECS: u64 = 30;
+const DEFAULT_JOB_STALE_TIMEOUT_SECS: u64 = 90;
 const DEFAULT_STATUS_INTERVAL_SECS: u64 = 10;
 
 #[derive(Parser, Debug)]
@@ -91,6 +92,7 @@ pub(crate) fn build_miner_config(
         max_threads,
         strategy: defaults.strategy,
         keepalive_interval: default_keepalive_interval(),
+        job_stale_timeout: default_job_stale_timeout(),
         status_interval: default_status_interval(),
         exit_after_accepted: None,
     };
@@ -160,6 +162,15 @@ pub(crate) fn default_keepalive_interval() -> Duration {
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(DEFAULT_KEEPALIVE_INTERVAL_SECS),
+    )
+}
+
+pub(crate) fn default_job_stale_timeout() -> Duration {
+    Duration::from_secs(
+        std::env::var("POWD_JOB_STALE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_JOB_STALE_TIMEOUT_SECS),
     )
 }
 

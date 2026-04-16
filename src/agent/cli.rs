@@ -3,8 +3,8 @@ use super::dashboard::run_dashboard;
 use super::default_socket_path;
 use super::mcp::run_mcp;
 use super::render::{
-    print_doctor_report, print_json_or_text, print_status, print_wallet_reward,
-    print_wallet_summary,
+    format_event, print_doctor_report, print_events_since, print_json_or_text, print_status,
+    print_wallet_reward, print_wallet_summary,
 };
 use super::wallet::WalletAgent;
 use super::wallet_support::WalletAgentError;
@@ -129,6 +129,23 @@ enum MinerCliCommand {
         after_help = "The dashboard is a human-facing monitor. It is not part of the MCP tool surface."
     )]
     Watch,
+    #[command(
+        about = "Read buffered events or follow live miner events",
+        after_help = "Without --follow this reads the in-memory event buffer. With --follow it prints buffered events first, then streams live events until interrupted."
+    )]
+    Events {
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "Return buffered events with seq greater than this value"
+        )]
+        since_seq: u64,
+        #[arg(
+            long,
+            help = "Continue streaming live events after the buffered backlog"
+        )]
+        follow: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -251,17 +268,22 @@ async fn run_miner_command(
     command: MinerCliCommand,
     json: bool,
 ) -> Result<(), CliError> {
-    if matches!(command, MinerCliCommand::Watch) && json {
-        return Err(CliError::new(
-            2,
-            "--json is not supported with `miner watch`",
-            json,
-        ));
-    }
     match command {
-        MinerCliCommand::Watch => run_dashboard(agent.clone())
-            .await
-            .map_err(|err| CliError::new(4, format!("dashboard failed: {err}"), json)),
+        MinerCliCommand::Watch => {
+            if json {
+                return Err(CliError::new(
+                    2,
+                    "--json is not supported with `miner watch`",
+                    json,
+                ));
+            }
+            run_dashboard(agent.clone())
+                .await
+                .map_err(|err| CliError::new(4, format!("dashboard failed: {err}"), json))
+        }
+        MinerCliCommand::Events { since_seq, follow } => {
+            run_miner_events(agent, since_seq, follow, json).await
+        }
         other => {
             let command = match other {
                 MinerCliCommand::Status => AgentCommand::Miner(MinerAction::Status),
@@ -272,7 +294,9 @@ async fn run_miner_command(
                 MinerCliCommand::SetMode { mode } => AgentCommand::Miner(MinerAction::SetMode {
                     mode: map_budget_mode(mode),
                 }),
-                MinerCliCommand::Watch => unreachable!("handled above"),
+                MinerCliCommand::Watch | MinerCliCommand::Events { .. } => {
+                    unreachable!("handled above")
+                }
             };
             let reply = agent
                 .execute(command)
@@ -280,6 +304,48 @@ async fn run_miner_command(
                 .map_err(|err| map_wallet_error(err, json))?;
             print_reply(reply, json);
             Ok(())
+        }
+    }
+}
+
+async fn run_miner_events(
+    agent: &WalletAgent,
+    since_seq: u64,
+    follow: bool,
+    json: bool,
+) -> Result<(), CliError> {
+    let response = agent
+        .events_since(since_seq)
+        .await
+        .map_err(|err| map_wallet_error(err, json))?;
+    let next_seq = response.next_seq;
+    print_events_since(response, json);
+    if !follow {
+        return Ok(());
+    }
+
+    let mut connection = agent
+        .subscribe_events()
+        .await
+        .map_err(|err| map_wallet_error(err, json))?;
+    let mut emitted_seq = next_seq;
+    loop {
+        let event = connection
+            .read_event(None)
+            .await
+            .map_err(|err| CliError::new(4, format!("read event stream failed: {err}"), json))?;
+        if json {
+            emitted_seq = emitted_seq.saturating_add(1);
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({
+                    "seq": emitted_seq,
+                    "event": event,
+                }))
+                .expect("encode streamed event json")
+            );
+        } else {
+            println!("{}", format_event(&event));
         }
     }
 }

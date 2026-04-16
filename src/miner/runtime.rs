@@ -402,7 +402,10 @@ async fn run_loop(
             ConnectState::Retry => continue,
             ConnectState::Shutdown => break,
         }
-        if state.handle_submit_timeout() || state.handle_keepalive_timeout() {
+        if state.handle_submit_timeout()
+            || state.handle_keepalive_timeout()
+            || state.handle_job_stale_timeout(ctx.config.job_stale_timeout)
+        {
             ctx.publish_snapshot(state);
             ctx.publish_event(MinerEvent::Reconnecting {
                 snapshot: ctx.snapshot(state),
@@ -413,6 +416,8 @@ async fn run_loop(
             ctx.publish_snapshot(state);
             continue;
         }
+
+        let job_stale_deadline = state.job_stale_deadline(ctx.config.job_stale_timeout);
 
         tokio::select! {
             _ = shutdown.cancelled() => {
@@ -475,6 +480,19 @@ async fn run_loop(
                     snapshot: ctx.snapshot(state),
                 });
                 continue;
+            }
+            _ = async {
+                if let Some(deadline) = job_stale_deadline {
+                    tokio::time::sleep_until(deadline).await;
+                }
+            }, if state.client.is_some() && state.current_job.is_some() && job_stale_deadline.is_some() => {
+                if state.handle_job_stale_timeout(ctx.config.job_stale_timeout) {
+                    ctx.publish_snapshot(state);
+                    ctx.publish_event(MinerEvent::Reconnecting {
+                        snapshot: ctx.snapshot(state),
+                    });
+                    continue;
+                }
             }
             _ = status_tick.tick() => {
                 state.refresh_hashrate(hashes.load(std::sync::atomic::Ordering::Relaxed));
@@ -551,7 +569,7 @@ async fn ensure_connected(
     } {
         Ok((client, first_job)) => {
             state.client = Some(client);
-            state.current_job = Some(first_job);
+            state.set_current_job(first_job);
             state.consecutive_rejected = 0;
             state.drop_stale_shares();
             if let Some(job) = state.current_job.as_ref() {
@@ -673,7 +691,7 @@ fn handle_client_event(
                 .as_ref()
                 .map(|job| job.worker_name.clone())
                 .context("missing worker_name for refreshed job")?;
-            state.current_job = Some(MiningJob::from_response(&job, &worker_name, strategy)?);
+            state.set_current_job(MiningJob::from_response(&job, &worker_name, strategy)?);
             if let Some(job) = state.current_job.clone() {
                 state.drop_stale_shares();
                 solver.set_job(job);
@@ -696,6 +714,19 @@ fn handle_client_event(
             state.record_rejected();
             state.consecutive_rejected = state.consecutive_rejected.saturating_add(1);
             state.last_error = Some(message.clone());
+            if should_reconnect_after_share_rejection(&message) {
+                state.reconnects = state.reconnects.saturating_add(1);
+                state.mark_disconnected();
+                ctx.publish_snapshot(state);
+                ctx.publish_event(MinerEvent::ShareRejected {
+                    snapshot: ctx.snapshot(state),
+                    reason: message,
+                });
+                ctx.publish_event(MinerEvent::Reconnecting {
+                    snapshot: ctx.snapshot(state),
+                });
+                return Ok(EventOutcome::Continue);
+            }
             ctx.publish_snapshot(state);
             ctx.publish_event(MinerEvent::ShareRejected {
                 snapshot: ctx.snapshot(state),
@@ -709,6 +740,15 @@ fn handle_client_event(
             Ok(EventOutcome::Continue)
         }
     }
+}
+
+fn should_reconnect_after_share_rejection(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("job not found")
+        || normalized.contains("invalid job id")
+        || normalized.contains("upstream unavailable")
+        || normalized.contains("stale job")
+        || normalized.contains("no job")
 }
 
 fn maybe_abort_on_consensus_switch(
@@ -736,5 +776,23 @@ async fn wait_or_retry(shutdown: &CancellationToken, state: &mut RuntimeState) -
     } else {
         state.reconnect_delay = next_reconnect_delay(state.reconnect_delay);
         ConnectState::Retry
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_reconnect_after_share_rejection;
+
+    #[test]
+    fn share_rejection_messages_that_require_reconnect_are_detected() {
+        assert!(should_reconnect_after_share_rejection("job not found"));
+        assert!(should_reconnect_after_share_rejection("invalid job id"));
+        assert!(should_reconnect_after_share_rejection(
+            "upstream unavailable"
+        ));
+        assert!(should_reconnect_after_share_rejection("no job available"));
+        assert!(!should_reconnect_after_share_rejection(
+            "low difficulty share"
+        ));
     }
 }

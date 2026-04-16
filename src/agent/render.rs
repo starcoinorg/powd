@@ -1,6 +1,6 @@
 use super::reward::WalletRewardSnapshot;
 use super::wallet_support::{DoctorReport, WalletConfigSummary};
-use crate::{Budget, MinerEvent, MinerSnapshot};
+use crate::{Budget, EventsSinceResponse, MinerEvent, MinerSnapshot};
 use serde::Serialize;
 
 pub(crate) fn print_json_or_text<T, F>(value: &T, json_output: bool, printer: F)
@@ -170,6 +170,21 @@ pub(crate) fn print_status(snapshot: MinerSnapshot, json: bool) {
         "last_error: {}",
         snapshot.last_error.unwrap_or_else(|| "-".to_string())
     );
+}
+
+pub(crate) fn print_events_since(response: EventsSinceResponse, json: bool) {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&response).expect("encode events since json")
+        );
+        return;
+    }
+
+    println!("next_seq: {}", response.next_seq);
+    for envelope in response.events {
+        println!("#{} {}", envelope.seq, format_event(&envelope.event));
+    }
 }
 
 pub(crate) fn format_event(event: &MinerEvent) -> String {

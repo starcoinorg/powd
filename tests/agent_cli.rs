@@ -283,6 +283,15 @@ async fn agent_cli_help_shows_wallet_miner_doctor_and_mcp_mode() -> Result<()> {
     assert!(mcp_stdout.contains("config"));
     assert!(mcp_stdout.contains("serve"));
 
+    let miner_help = Command::new(&ctl_bin)
+        .args(["miner", "--help"])
+        .output()
+        .context("run powd miner --help failed")?;
+    assert!(miner_help.status.success());
+    let miner_stdout = String::from_utf8(miner_help.stdout).context("decode miner help failed")?;
+    assert!(miner_stdout.contains("events"));
+    assert!(miner_stdout.contains("watch"));
+
     let set_mode_help = Command::new(&ctl_bin)
         .args(["miner", "set-mode", "--help"])
         .output()
@@ -393,6 +402,36 @@ async fn agent_cli_lifecycle_and_set_mode_work() -> Result<()> {
     assert_eq!(stopped["requested_mode"], "auto");
     assert_eq!(stopped["auto_state"], "held");
     assert_eq!(stopped["auto_hold_reason"], "manual_stop");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_cli_events_reads_buffered_history() -> Result<()> {
+    let _guard = TEST_MUTEX.lock().await;
+
+    let pool = SilentKeepalivePool::start().await?;
+    let agent = AgentProcess::spawn(&pool.pool_addr().to_string(), "keccak", &[]).await?;
+
+    let state_path = agent.state_path().to_string_lossy().to_string();
+    let envs = [("POWD_STATE_PATH", state_path.as_str())];
+
+    let started = run_ctl_with_env_json(agent.socket_path(), &envs, &["miner", "start"]).await?;
+    assert!(matches!(
+        started["state"].as_str(),
+        Some("starting" | "running")
+    ));
+
+    let events = run_ctl_with_env_json(agent.socket_path(), &envs, &["miner", "events"]).await?;
+    assert!(events["next_seq"].as_u64().unwrap_or(0) >= 1);
+    let started_seen = events["events"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .any(|event| event["event"]["type"] == "started")
+        })
+        .unwrap_or(false);
+    assert!(started_seen, "expected buffered started event");
     Ok(())
 }
 
