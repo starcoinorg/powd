@@ -7259,7 +7259,7 @@ dependencies = [
 
 [[package]]
 name = "powd"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "bytes 1.11.1",
