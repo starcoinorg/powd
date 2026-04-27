@@ -113,6 +113,7 @@ powd mcp config
 ## Learn More
 
 - [Docs index](docs/README.md)
+- [AgentMine 101 tutorial](docs/agentmine-101-hermes-openclaw.en.md)
 - [OpenClaw integration](docs/powd-openclaw-integration.en.md)
 - [Local API](docs/powd-local-api.en.md)
 - [Identity and minimal protocol](docs/powd-identity.en.md)
